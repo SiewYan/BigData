@@ -1,0 +1,1015 @@
+heat_template_version: 2013-05-23
+description: Create VM, network and security group for Big Data testing 
+
+parameters:
+    
+  image_centos_7:
+    type: string
+    label: Image name or ID
+    description: Image used for all nodo in big data cluster (CentOS7)
+    default: 5938e89b-1ff7-4caf-b090-79c949da7ba7 
+  
+  key_name_user:
+   type: string
+   label: Public ssh key of one user.
+   description: Public ssh key of one user.
+   default: ChiaveUser01
+
+  fixed_ip_nodo_1:
+    type: string
+    label: Fixed ip for nodo1 host
+    description: Fixed ip for nodo1 host
+    default: "10.64.12.50"
+
+  fixed_ip_nodo_2:
+    type: string
+    label: Fixed ip for nodo2 host
+    description: Fixed ip for nodo2 host
+    default: "10.64.12.51"
+
+  fixed_ip_nodo_3:
+    type: string
+    label: Fixed ip for nodo3 host
+    description: Fixed ip for nodo3 host
+    default: "10.64.12.52"
+
+  fixed_ip_nodo_4:
+    type: string
+    label: Fixed ip for nodo4 host
+    description: Fixed ip for nodo4 host
+    default: "10.64.12.53"
+
+  fixed_ip_nodo_5:
+    type: string
+    label: Fixed ip for nodo5 host
+    description: Fixed ip for nodo5 host
+    default: "10.64.12.54"
+
+  fixed_ip_nodo_6:
+    type: string
+    label: Fixed ip for nodo6 host
+    description: Fixed ip for nodo6 host
+    default: "10.64.12.55"
+
+resources:
+  
+  root_pw:
+   type: OS::Heat::RandomString
+   properties:
+      length: 8 
+
+  hadoop_pw:
+   type: OS::Heat::RandomString
+   properties:
+      length: 8
+
+
+  sshPingBigData_sg:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      description: "Access to ssh, ping, mesos, marathon, chronos connections for all VM in this security group"
+      name: "sshPingBigdata"
+      rules: [{"direction": ingress, "remote_ip_prefix": 0.0.0.0/0, "port_range_min": 22, "remote_mode": remote_ip_prefix, "port_range_max": 22, "protocol": TCP}, {"direction": ingress, "remote_ip_prefix": 0.0.0.0/0, "port_range_min": 5050, "remote_mode": remote_ip_prefix, "port_range_max": 5050, "protocol": TCP}, {"direction": ingress, "remote_ip_prefix": 0.0.0.0/0, "port_range_min": 8080, "remote_mode": remote_ip_prefix, "port_range_max": 8080, "protocol": TCP}, {"direction": ingress, "remote_ip_prefix": 0.0.0.0/0, "port_range_min": 4400, "remote_mode": remote_ip_prefix, "port_range_max": 4400, "protocol": TCP},  {"direction": ingress, "remote_ip_prefix": 0.0.0.0/0, "port_range_min": 2181, "remote_mode": remote_ip_prefix, "port_range_max": 2181, "protocol": TCP},  {"direction": ingress, "remote_ip_prefix": 0.0.0.0/0, "port_range_min": 2888, "remote_mode": remote_ip_prefix, "port_range_max": 3888, "protocol": TCP}, {"direction": ingress, "remote_ip_prefix": 0.0.0.0/0, "remote_mode": remote_ip_prefix, "protocol": ICMP}]
+
+
+  pnodo1_server_port:
+    type: OS::Neutron::Port
+    properties:
+      name: "pnodo1-server-port"
+      network_id: f43b395b-f64e-4b20-99d1-5dec84b2ccf7
+      fixed_ips:
+        - { ip_address: { get_param: fixed_ip_nodo_1 }, subnet: sub-OCP-lan }
+      security_groups: [{Ref: sshPingBigData_sg},]
+
+  nodo1_server_instance:
+    type: OS::Nova::Server
+    properties:
+      name: "nodo1"
+      key_name: { get_param: key_name_user }
+      image: { get_param: image_centos_7 } 
+      flavor: m1.medium
+      #security_groups: [{Ref: sshPingBigData_sg},]
+      networks:
+        - port: { get_resource: pnodo1_server_port }
+      user_data_format: RAW
+      user_data:
+        str_replace:
+          template: |
+           #!/bin/bash
+           echo -n root:$ROOT_PW | chpasswd
+           sed -i s/"PermitRootLogin without-password$"/"PermitRootLogin yes"/ /etc/ssh/sshd_config
+           sed -i s/"PasswordAuthentication no$"/"PasswordAuthentication yes"/ /etc/ssh/sshd_config
+           service sshd restart
+           cat > /etc/hosts << EOF
+           $IP_FIX_NODE1    nodo1.novalocal nodo1
+           $IP_FIX_NODE2    nodo2.novalocal nodo2
+           $IP_FIX_NODE3    nodo3.novalocal nodo3
+           $IP_FIX_NODE4    nodo4.novalocal nodo4
+           $IP_FIX_NODE5    nodo5.novalocal nodo5
+           $IP_FIX_NODE6    nodo6.novalocal nodo6
+           127.0.0.1   localhost localhost.localdomain localhost4 localhost4.localdomain4
+           ::1         localhost localhost.localdomain localhost6 localhost6.localdomain6
+           EOF
+           yum update
+           yum install -y ntp tar wget git telnet
+           cat > /etc/hostname  << EOF
+           nodo1.novalocal nodo1
+           EOF
+           yum localinstall -y http://archive.cloudera.com/cdh5/one-click-install/redhat/7/x86_64/cloudera-cdh-5-0.x86_64.rpm
+           yum install -y zookeeper-server
+           service zookeeper-server stop
+           sed -i 0,/'requiretty'/{s/'requiretty'/'!requiretty'/} /etc/sudoers
+           sudo -u zookeeper /bin/zookeeper-server-initialize --myid=1
+           cat >> /etc/zookeeper/conf/zoo.cfg << EOF
+           server.1=$IP_FIX_NODE1:2888:3888
+           server.2=$IP_FIX_NODE2:2888:3888
+           server.3=$IP_FIX_NODE3:2888:3888
+           EOF
+           systemctl stop zookeeper-server
+           chkconfig zookeeper-server on
+           yum -y install http://dl.fedoraproject.org/pub/epel/7/x86_64/e/epel-release-7-8.noarch.rpm
+           yum -y install sshpass
+           cd /opt
+           wget --no-cookies --no-check-certificate --header "Cookie: gpw_e24=http%3A%2F%2Fwww.oracle.com%2F; oraclelicense=accept-securebackup-cookie" "http://download.oracle.com/otn-pub/java/jdk/8u101-b13/jdk-8u101-linux-x64.tar.gz"
+           tar -zxf /opt/jdk-8u101-linux-x64.tar.gz
+           mv jdk1.8.0_101 jdk
+           alternatives --install /usr/bin/java java /opt/jdk/bin/java 2
+           alternatives --install /usr/bin/jar jar /opt/jdk/bin/jar 2
+           alternatives --install /usr/bin/javac javac /opt/jdk/bin/javac 2
+           alternatives --set jar /opt/jdk/bin/jar
+           alternatives --set javac /opt/jdk/bin/javac 
+           alternatives --set java /opt/jdk/bin/java
+           cat >> /etc/bashrc << EOF
+           export JAVA_HOME=/opt/jdk
+           export JRE_HOME=/opt/jdk/jre
+           export PATH=$PATH:/opt/jdk/bin:/opt/jdk/jre/bin
+           EOF
+           cat >> /etc/sysctl.conf << EOF
+           net.ipv6.conf.all.disable_ipv6 = 1
+           net.ipv6.conf.default.disable_ipv6 = 1
+           EOF
+           chmod 777 /opt/
+           useradd hadoop
+           echo -n hadoop:$HADOOP_PW | chpasswd
+           mkdir -p /home/hadoop/.ssh
+           echo | ssh-keygen -f hadoop -P ''
+           mv hadoop /home/hadoop/.ssh/id_rsa
+           mv hadoop.pub /home/hadoop/.ssh/id_rsa.pub
+           chown -R hadoop.hadoop /home/hadoop/.ssh
+           sudo sshpass -p '$ROOT_PW' scp -o StrictHostKeyChecking=no root@$IP_FIX_NODE1:/home/hadoop/.ssh/id_rsa.pub /home/hadoop/.ssh/authorized_keys
+           chown -R hadoop.hadoop /home/hadoop/.ssh
+           chmod 600 /home/hadoop/.ssh/authorized_keys
+           source /etc/bashrc
+           cd /opt
+           wget http://www.eu.apache.org/dist/hadoop/common/hadoop-2.6.0/hadoop-2.6.0.tar.gz
+           tar -zxf hadoop-2.6.0.tar.gz
+           mv hadoop-2.6.0 hadoop
+           cat >> /home/hadoop/.bashrc << EOF
+           export HADOOP_PREFIX=/opt/hadoop
+           export HADOOP_HOME=\$HADOOP_PREFIX
+           export HADOOP_COMMON_HOME=\$HADOOP_PREFIX
+           export HADOOP_CONF_DIR=\$HADOOP_PREFIX/etc/hadoop
+           export HADOOP_HDFS_HOME=\$HADOOP_PREFIX
+           export HADOOP_MAPRED_HOME=\$HADOOP_PREFIX
+           export HADOOP_YARN_HOME=\$HADOOP_PREFIX
+           export PATH=$PATH:\$HADOOP_PREFIX/sbin:\$HADOOP_PREFIX/bin
+           EOF
+           cat > /opt/hadoop/etc/hadoop/core-site.xml << EOF
+           <configuration>
+           <property>
+              <name>fs.defaultFS</name>
+              <value>hdfs://nodo1.novalocal:9000/</value>
+           </property>
+           </configuration>
+           EOF
+           chown hadoop /opt/hadoop/ -R
+           chgrp hadoop /opt/hadoop/ -R
+           mkdir /home/hadoop/datanode
+           chown hadoop /home/hadoop/datanode/
+           chgrp hadoop /home/hadoop/datanode/
+           cat > /opt/hadoop/etc/hadoop/hdfs-site.xml << EOF
+           <configuration>
+           <property>
+             <name>dfs.replication</name>
+             <value>3</value>
+           </property>
+           <property>
+             <name>dfs.permissions</name>
+             <value>false</value>
+           </property>
+           <property>
+             <name>dfs.datanode.data.dir</name>
+             <value>/home/hadoop/datanode</value>
+           </property>
+           </configuration>
+           EOF
+           mkdir /home/hadoop/namenode
+           chown hadoop /home/hadoop/namenode/
+           chgrp hadoop /home/hadoop/namenode/
+           cat > /opt/hadoop/etc/hadoop/mapred-site.xml << EOF
+           <configuration>
+           <property>
+             <name>mapreduce.framework.name</name>
+             <value>yarn</value> <!-- and not local (!) -->
+           </property>
+           </configuration>
+           EOF
+           cat > /opt/hadoop/etc/hadoop/yarn-site.xml << EOF
+           <configuration>
+           <property>
+             <name>yarn.resourcemanager.hostname</name>
+             <value>nodo1</value>
+           </property>
+           <property>
+             <name>yarn.nodemanager.hostname</name>
+             <value>nodo1</value>
+           </property>
+           <property>
+             <name>yarn.nodemanager.aux-services</name>
+             <value>mapreduce_shuffle</value>
+           </property>
+           </configuration>
+           EOF
+           cat > /opt/hadoop/etc/hadoop/slaves << EOF
+           nodo1
+           nodo2
+           nodo3
+           nodo4
+           nodo5
+           nodo6
+           nodo7
+           nodo8
+           EOF
+           #sudo -u hadoop /opt/hadoop/bin/hdfs namenode -format
+           #sudo -u hadoop /opt/hadoop/sbin/start-dfs.sh
+           #sudo -u hadoop /opt/hadoop/sbin/start-yarn.sh
+           curl -k -X PUT -H 'Content-Type:application/json' \
+                   -d '{"Status" : "SUCCESS","Reason" : "Configuration OK","UniqueId" : "NODO1","Data" : "Nodo1 started Configured."}' \
+                   "$wait_handle$"
+          params:
+            $ROOT_PW: {get_resource: root_pw}
+            $HADOOP_PW: {get_resource: hadoop_pw}
+            $IP_FIX_NODE1: {get_param: fixed_ip_nodo_1}
+            $IP_FIX_NODE2: {get_param: fixed_ip_nodo_2}
+            $IP_FIX_NODE3: {get_param: fixed_ip_nodo_3}
+            $IP_FIX_NODE4: {get_param: fixed_ip_nodo_4}
+            $IP_FIX_NODE5: {get_param: fixed_ip_nodo_5}
+            $IP_FIX_NODE6: {get_param: fixed_ip_nodo_6}
+            $wait_handle$: { get_resource: nodo1_instance_wait_handle }
+
+  nodo1_instance_wait:
+    type: "AWS::CloudFormation::WaitCondition"
+    depends_on: nodo1_server_instance 
+    properties:
+      Handle:
+        get_resource: nodo1_instance_wait_handle
+      Timeout: 3600
+
+  nodo1_instance_wait_handle:
+    type: "AWS::CloudFormation::WaitConditionHandle"
+  
+
+  pnodo2_server_port:
+    type: OS::Neutron::Port
+    properties:
+      name: "pnodo2-server-port"
+      network_id: f43b395b-f64e-4b20-99d1-5dec84b2ccf7
+      fixed_ips:
+        - { ip_address: { get_param: fixed_ip_nodo_2 }, subnet: sub-OCP-lan }
+      security_groups: [{Ref: sshPingBigData_sg},]
+
+  nodo2_server_instance:
+    type: OS::Nova::Server
+    depends_on: nodo1_instance_wait
+    properties:
+      name: "nodo2"
+      key_name: { get_param: key_name_user }
+      image: { get_param: image_centos_7 }
+      flavor: m1.medium
+      #security_groups: [{Ref: sshPingBigData_sg},]
+      networks:
+        - port: { get_resource: pnodo2_server_port }
+      user_data_format: RAW
+      user_data:
+        str_replace:
+          template: |
+           #!/bin/bash
+           echo -n root:$ROOT_PW | chpasswd
+           sed -i s/"PermitRootLogin without-password$"/"PermitRootLogin yes"/ /etc/ssh/sshd_config
+           sed -i s/"PasswordAuthentication no$"/"PasswordAuthentication yes"/ /etc/ssh/sshd_config
+           service sshd restart
+           cat > /etc/hosts << EOF
+           $IP_FIX_NODE1    nodo1.novalocal nodo1
+           $IP_FIX_NODE2    nodo2.novalocal nodo2
+           $IP_FIX_NODE3    nodo3.novalocal nodo3
+           $IP_FIX_NODE4    nodo4.novalocal nodo4
+           $IP_FIX_NODE5    nodo5.novalocal nodo5
+           $IP_FIX_NODE6    nodo6.novalocal nodo6
+           127.0.0.1   localhost localhost.localdomain localhost4 localhost4.localdomain4
+           ::1         localhost localhost.localdomain localhost6 localhost6.localdomain6
+           EOF
+           yum update
+           yum install -y ntp tar wget git telnet
+           cat > /etc/hostname  << EOF
+           nodo2.novalocal nodo2
+           EOF
+           yum localinstall -y http://archive.cloudera.com/cdh5/one-click-install/redhat/7/x86_64/cloudera-cdh-5-0.x86_64.rpm
+           yum install -y mesos marathon chronos
+           yum install -y zookeeper-server
+           service zookeeper-server stop
+           sed -i 0,/'requiretty'/{s/'requiretty'/'!requiretty'/} /etc/sudoers
+           sudo -u zookeeper /bin/zookeeper-server-initialize --myid=2
+           cat >> /etc/zookeeper/conf/zoo.cfg << EOF
+           server.1=$IP_FIX_NODE1:2888:3888
+           server.2=$IP_FIX_NODE2:2888:3888
+           server.3=$IP_FIX_NODE3:2888:3888
+           EOF
+           systemctl stop zookeeper-server
+           chkconfig zookeeper-server on
+           yum -y install http://dl.fedoraproject.org/pub/epel/7/x86_64/e/epel-release-7-8.noarch.rpm
+           yum -y install sshpass
+           cd /opt
+           wget --no-cookies --no-check-certificate --header "Cookie: gpw_e24=http%3A%2F%2Fwww.oracle.com%2F; oraclelicense=accept-securebackup-cookie" "http://download.oracle.com/otn-pub/java/jdk/8u101-b13/jdk-8u101-linux-x64.tar.gz"
+           tar -zxf /opt/jdk-8u101-linux-x64.tar.gz
+           mv jdk1.8.0_101 jdk
+           alternatives --install /usr/bin/java java /opt/jdk/bin/java 2
+           alternatives --install /usr/bin/jar jar /opt/jdk/bin/jar 2
+           alternatives --install /usr/bin/javac javac /opt/jdk/bin/javac 2
+           alternatives --set jar /opt/jdk/bin/jar
+           alternatives --set javac /opt/jdk/bin/javac
+           alternatives --set java /opt/jdk/bin/java
+           cat >> /etc/bashrc << EOF
+           export JAVA_HOME=/opt/jdk
+           export JRE_HOME=/opt/jdk/jre
+           export PATH=$PATH:/opt/jdk/bin:/opt/jdk/jre/bin
+           EOF
+           cat >> /etc/sysctl.conf << EOF
+           net.ipv6.conf.all.disable_ipv6 = 1
+           net.ipv6.conf.default.disable_ipv6 = 1
+           EOF
+           chmod 777 /opt/
+           useradd hadoop
+           echo -n hadoop:$HADOOP_PW | chpasswd
+           mkdir -p /home/hadoop/.ssh
+           echo | ssh-keygen -f hadoop -P ''
+           mv hadoop /home/hadoop/.ssh/id_rsa
+           mv hadoop.pub /home/hadoop/.ssh/id_rsa.pub
+           chown -R hadoop.hadoop /home/hadoop/.ssh
+           sudo sshpass -p '$ROOT_PW' scp -o StrictHostKeyChecking=no root@$IP_FIX_NODE1:/home/hadoop/.ssh/id_rsa.pub /home/hadoop/.ssh/authorized_keys
+           chown -R hadoop.hadoop /home/hadoop/.ssh
+           chmod 600 /home/hadoop/.ssh/authorized_keys
+           source /etc/bashrc
+           cd /opt
+           wget http://www.eu.apache.org/dist/hadoop/common/hadoop-2.6.0/hadoop-2.6.0.tar.gz
+           tar -zxf hadoop-2.6.0.tar.gz
+           mv hadoop-2.6.0 hadoop
+           cat >> /home/hadoop/.bashrc << EOF
+           export HADOOP_PREFIX=/opt/hadoop
+           export HADOOP_HOME=\$HADOOP_PREFIX
+           export HADOOP_COMMON_HOME=\$HADOOP_PREFIX
+           export HADOOP_CONF_DIR=\$HADOOP_PREFIX/etc/hadoop
+           export HADOOP_HDFS_HOME=\$HADOOP_PREFIX
+           export HADOOP_MAPRED_HOME=\$HADOOP_PREFIX
+           export HADOOP_YARN_HOME=\$HADOOP_PREFIX
+           export PATH=$PATH:\$HADOOP_PREFIX/sbin:\$HADOOP_PREFIX/bin
+           EOF
+           cat > /opt/hadoop/etc/hadoop/core-site.xml << EOF
+           <configuration>
+           <property>
+              <name>fs.defaultFS</name>
+              <value>hdfs://nodo1.novalocal:9000/</value>
+           </property>
+           </configuration>
+           EOF
+           chown hadoop /opt/hadoop/ -R
+           chgrp hadoop /opt/hadoop/ -R
+           mkdir /home/hadoop/datanode
+           chown hadoop /home/hadoop/datanode/
+           chgrp hadoop /home/hadoop/datanode/
+           cat > /opt/hadoop/etc/hadoop/hdfs-site.xml << EOF
+           <configuration>
+           <property>
+             <name>dfs.replication</name>
+             <value>3</value>
+           </property>
+           <property>
+             <name>dfs.permissions</name>
+             <value>false</value>
+           </property>
+           <property>
+             <name>dfs.datanode.data.dir</name>
+             <value>/home/hadoop/datanode</value>
+           </property>
+           </configuration>
+           EOF
+           curl -k -X PUT -H 'Content-Type:application/json' \
+                   -d '{"Status" : "SUCCESS","Reason" : "Configuration OK","UniqueId" : "NODO2","Data" : "Nodo2 started Configured."}' \
+                   "$wait_handle$"
+          params:
+            $ROOT_PW: {get_resource: root_pw}
+            $HADOOP_PW: {get_resource: root_pw}
+            $IP_FIX_NODE1: {get_param: fixed_ip_nodo_1}
+            $IP_FIX_NODE2: {get_param: fixed_ip_nodo_2}
+            $IP_FIX_NODE3: {get_param: fixed_ip_nodo_3}
+            $IP_FIX_NODE4: {get_param: fixed_ip_nodo_4}
+            $IP_FIX_NODE5: {get_param: fixed_ip_nodo_5}
+            $IP_FIX_NODE6: {get_param: fixed_ip_nodo_6}
+            $wait_handle$: { get_resource: nodo2_instance_wait_handle }
+
+  nodo2_instance_wait:
+    type: "AWS::CloudFormation::WaitCondition"
+    depends_on: nodo2_server_instance
+    properties:
+      Handle:
+        get_resource: nodo2_instance_wait_handle
+      Timeout: 3600
+
+  nodo2_instance_wait_handle:
+    type: "AWS::CloudFormation::WaitConditionHandle"
+
+
+  pnodo3_server_port:
+    type: OS::Neutron::Port
+    properties:
+      name: "pnodo3-server-port"
+      network_id: f43b395b-f64e-4b20-99d1-5dec84b2ccf7
+      fixed_ips:
+        - { ip_address: { get_param: fixed_ip_nodo_3 }, subnet: sub-OCP-lan }
+      security_groups: [{Ref: sshPingBigData_sg},]
+
+  nodo3_server_instance:
+    type: OS::Nova::Server
+    depends_on: nodo2_instance_wait
+    properties:
+      name: "nodo3"
+      key_name: { get_param: key_name_user }
+      image: { get_param: image_centos_7 }
+      flavor: m1.medium
+      #security_groups: [{Ref: sshPingBigData_sg},]
+      networks:
+        - port: { get_resource: pnodo3_server_port }
+      user_data_format: RAW
+      user_data:
+        str_replace:
+          template: |
+           #!/bin/bash
+           echo -n root:$ROOT_PW | chpasswd
+           sed -i s/"PermitRootLogin without-password$"/"PermitRootLogin yes"/ /etc/ssh/sshd_config
+           sed -i s/"PasswordAuthentication no$"/"PasswordAuthentication yes"/ /etc/ssh/sshd_config
+           service sshd restart
+           cat > /etc/hosts << EOF
+           $IP_FIX_NODE1    nodo1.novalocal nodo1
+           $IP_FIX_NODE2    nodo2.novalocal nodo2
+           $IP_FIX_NODE3    nodo3.novalocal nodo3
+           $IP_FIX_NODE4    nodo4.novalocal nodo4
+           $IP_FIX_NODE5    nodo5.novalocal nodo5
+           $IP_FIX_NODE6    nodo6.novalocal nodo6
+           127.0.0.1   localhost localhost.localdomain localhost4 localhost4.localdomain4
+           ::1         localhost localhost.localdomain localhost6 localhost6.localdomain6
+           EOF
+           yum update
+           yum install -y ntp tar wget git telnet
+           cat > /etc/hostname  << EOF
+           nodo3.novalocal nodo3
+           EOF
+           yum localinstall -y http://archive.cloudera.com/cdh5/one-click-install/redhat/7/x86_64/cloudera-cdh-5-0.x86_64.rpm
+           yum install -y zookeeper-server
+           service zookeeper-server stop
+           sed -i 0,/'requiretty'/{s/'requiretty'/'!requiretty'/} /etc/sudoers
+           sudo -u zookeeper /bin/zookeeper-server-initialize --myid=3
+           cat >> /etc/zookeeper/conf/zoo.cfg << EOF
+           server.1=$IP_FIX_NODE1:2888:3888
+           server.2=$IP_FIX_NODE2:2888:3888
+           server.3=$IP_FIX_NODE3:2888:3888
+           EOF
+           systemctl stop zookeeper-server
+           chkconfig zookeeper-server on
+           yum -y install http://dl.fedoraproject.org/pub/epel/7/x86_64/e/epel-release-7-8.noarch.rpm
+           yum -y install sshpass
+           cd /opt
+           wget --no-cookies --no-check-certificate --header "Cookie: gpw_e24=http%3A%2F%2Fwww.oracle.com%2F; oraclelicense=accept-securebackup-cookie" "http://download.oracle.com/otn-pub/java/jdk/8u101-b13/jdk-8u101-linux-x64.tar.gz"
+           tar -zxf /opt/jdk-8u101-linux-x64.tar.gz
+           mv jdk1.8.0_101 jdk
+           alternatives --install /usr/bin/java java /opt/jdk/bin/java 2
+           alternatives --install /usr/bin/jar jar /opt/jdk/bin/jar 2
+           alternatives --install /usr/bin/javac javac /opt/jdk/bin/javac 2
+           alternatives --set jar /opt/jdk/bin/jar
+           alternatives --set javac /opt/jdk/bin/javac
+           alternatives --set java /opt/jdk/bin/java
+           cat >> /etc/bashrc << EOF
+           export JAVA_HOME=/opt/jdk
+           export JRE_HOME=/opt/jdk/jre
+           export PATH=$PATH:/opt/jdk/bin:/opt/jdk/jre/bin
+           EOF
+           cat >> /etc/sysctl.conf << EOF
+           net.ipv6.conf.all.disable_ipv6 = 1
+           net.ipv6.conf.default.disable_ipv6 = 1
+           EOF
+           chmod 777 /opt/
+           useradd hadoop
+           echo -n hadoop:$HADOOP_PW | chpasswd
+           mkdir -p /home/hadoop/.ssh 
+           echo | ssh-keygen -f hadoop -P ''
+           mv hadoop /home/hadoop/.ssh/id_rsa
+           mv hadoop.pub /home/hadoop/.ssh/id_rsa.pub
+           chown -R hadoop.hadoop /home/hadoop/.ssh
+           sudo sshpass -p '$ROOT_PW' scp -o StrictHostKeyChecking=no root@$IP_FIX_NODE1:/home/hadoop/.ssh/id_rsa.pub /home/hadoop/.ssh/authorized_keys
+           chown -R hadoop.hadoop /home/hadoop/.ssh
+           chmod 600 /home/hadoop/.ssh/authorized_keys
+           source /etc/bashrc
+           cd /opt
+           wget http://www.eu.apache.org/dist/hadoop/common/hadoop-2.6.0/hadoop-2.6.0.tar.gz
+           tar -zxf hadoop-2.6.0.tar.gz
+           mv hadoop-2.6.0 hadoop
+           cat >> /home/hadoop/.bashrc << EOF
+           export HADOOP_PREFIX=/opt/hadoop
+           export HADOOP_HOME=\$HADOOP_PREFIX
+           export HADOOP_COMMON_HOME=\$HADOOP_PREFIX
+           export HADOOP_CONF_DIR=\$HADOOP_PREFIX/etc/hadoop
+           export HADOOP_HDFS_HOME=\$HADOOP_PREFIX
+           export HADOOP_MAPRED_HOME=\$HADOOP_PREFIX
+           export HADOOP_YARN_HOME=\$HADOOP_PREFIX
+           export PATH=$PATH:\$HADOOP_PREFIX/sbin:\$HADOOP_PREFIX/bin
+           EOF
+           cat > /opt/hadoop/etc/hadoop/core-site.xml << EOF
+           <configuration>
+           <property>
+              <name>fs.defaultFS</name>
+              <value>hdfs://nodo1.novalocal:9000/</value>
+           </property>
+           </configuration>
+           EOF
+           chown hadoop /opt/hadoop/ -R
+           chgrp hadoop /opt/hadoop/ -R
+           mkdir /home/hadoop/datanode
+           chown hadoop /home/hadoop/datanode/
+           chgrp hadoop /home/hadoop/datanode/
+           cat > /opt/hadoop/etc/hadoop/hdfs-site.xml << EOF
+           <configuration>
+           <property>
+             <name>dfs.replication</name>
+             <value>3</value>
+           </property>
+           <property>
+             <name>dfs.permissions</name>
+             <value>false</value>
+           </property>
+           <property>
+             <name>dfs.datanode.data.dir</name>
+             <value>/home/hadoop/datanode</value>
+           </property>
+           </configuration>
+           EOF
+           curl -k -X PUT -H 'Content-Type:application/json' \
+                   -d '{"Status" : "SUCCESS","Reason" : "Configuration OK","UniqueId" : "NODO3","Data" : "Nodo3 started Configured."}' \
+                   "$wait_handle$"
+          params:
+            $ROOT_PW: {get_resource: root_pw}
+            $HADOOP_PW: {get_resource: root_pw}
+            $IP_FIX_NODE1: {get_param: fixed_ip_nodo_1}
+            $IP_FIX_NODE2: {get_param: fixed_ip_nodo_2}
+            $IP_FIX_NODE3: {get_param: fixed_ip_nodo_3}
+            $IP_FIX_NODE4: {get_param: fixed_ip_nodo_4}
+            $IP_FIX_NODE5: {get_param: fixed_ip_nodo_5}
+            $IP_FIX_NODE6: {get_param: fixed_ip_nodo_6}
+            $wait_handle$: { get_resource: nodo3_instance_wait_handle }
+
+  nodo3_instance_wait:
+    type: "AWS::CloudFormation::WaitCondition"
+    depends_on: nodo3_server_instance
+    properties:
+      Handle:
+        get_resource: nodo3_instance_wait_handle
+      Timeout: 3600
+
+  nodo3_instance_wait_handle:
+    type: "AWS::CloudFormation::WaitConditionHandle"
+
+  pnodo4_server_port:
+    type: OS::Neutron::Port
+    properties:
+      name: "pnodo4-server-port"
+      network_id: f43b395b-f64e-4b20-99d1-5dec84b2ccf7
+      fixed_ips:
+        - { ip_address: { get_param: fixed_ip_nodo_4 }, subnet: sub-OCP-lan }
+      security_groups: [{Ref: sshPingBigData_sg},]
+
+  nodo4_server_instance:
+    type: OS::Nova::Server
+    depends_on: nodo3_instance_wait
+    properties:
+      name: "nodo4"
+      key_name: { get_param: key_name_user }
+      image: { get_param: image_centos_7 }
+      flavor: m1.medium
+      #security_groups: [{Ref: sshPingBigData_sg},]
+      networks:
+        - port: { get_resource: pnodo4_server_port }
+      user_data_format: RAW
+      user_data:
+        str_replace:
+          template: |
+           #!/bin/bash
+           echo -n root:$ROOT_PW | chpasswd
+           sed -i s/"PermitRootLogin without-password$"/"PermitRootLogin yes"/ /etc/ssh/sshd_config
+           sed -i s/"PasswordAuthentication no$"/"PasswordAuthentication yes"/ /etc/ssh/sshd_config
+           service sshd restart
+           cat > /etc/hosts << EOF
+           $IP_FIX_NODE1    nodo1.novalocal nodo1
+           $IP_FIX_NODE2    nodo2.novalocal nodo2
+           $IP_FIX_NODE3    nodo3.novalocal nodo3
+           $IP_FIX_NODE4    nodo4.novalocal nodo4
+           $IP_FIX_NODE5    nodo5.novalocal nodo5
+           $IP_FIX_NODE6    nodo6.novalocal nodo6
+           127.0.0.1   localhost localhost.localdomain localhost4 localhost4.localdomain4
+           ::1         localhost localhost.localdomain localhost6 localhost6.localdomain6
+           EOF
+           yum update
+           yum install -y ntp tar wget git telnet
+           cat > /etc/hostname  << EOF
+           nodo4.novalocal nodo4
+           EOF
+           yum -y install http://dl.fedoraproject.org/pub/epel/7/x86_64/e/epel-release-7-8.noarch.rpm
+           yum -y install sshpass
+           cd /opt
+           wget --no-cookies --no-check-certificate --header "Cookie: gpw_e24=http%3A%2F%2Fwww.oracle.com%2F; oraclelicense=accept-securebackup-cookie" "http://download.oracle.com/otn-pub/java/jdk/8u101-b13/jdk-8u101-linux-x64.tar.gz"
+           tar -zxf /opt/jdk-8u101-linux-x64.tar.gz
+           mv jdk1.8.0_101 jdk
+           alternatives --install /usr/bin/java java /opt/jdk/bin/java 2
+           alternatives --install /usr/bin/jar jar /opt/jdk/bin/jar 2
+           alternatives --install /usr/bin/javac javac /opt/jdk/bin/javac 2
+           alternatives --set jar /opt/jdk/bin/jar
+           alternatives --set javac /opt/jdk/bin/javac
+           alternatives --set java /opt/jdk/bin/java
+           cat >> /etc/bashrc << EOF
+           export JAVA_HOME=/opt/jdk
+           export JRE_HOME=/opt/jdk/jre
+           export PATH=$PATH:/opt/jdk/bin:/opt/jdk/jre/bin
+           EOF
+           cat >> /etc/sysctl.conf << EOF
+           net.ipv6.conf.all.disable_ipv6 = 1
+           net.ipv6.conf.default.disable_ipv6 = 1
+           EOF
+           chmod 777 /opt/
+           useradd hadoop
+           echo -n hadoop:$HADOOP_PW | chpasswd
+           mkdir -p /home/hadoop/.ssh
+           echo | ssh-keygen -f hadoop -P ''
+           mv hadoop /home/hadoop/.ssh/id_rsa
+           mv hadoop.pub /home/hadoop/.ssh/id_rsa.pub
+           chown -R hadoop.hadoop /home/hadoop/.ssh
+           sudo sshpass -p '$ROOT_PW' scp -o StrictHostKeyChecking=no root@$IP_FIX_NODE1:/home/hadoop/.ssh/id_rsa.pub /home/hadoop/.ssh/authorized_keys
+           chown -R hadoop.hadoop /home/hadoop/.ssh
+           chmod 600 /home/hadoop/.ssh/authorized_keys
+           source /etc/bashrc
+           cd /opt
+           wget http://www.eu.apache.org/dist/hadoop/common/hadoop-2.6.0/hadoop-2.6.0.tar.gz
+           tar -zxf hadoop-2.6.0.tar.gz
+           mv hadoop-2.6.0 hadoop
+           cat >> /home/hadoop/.bashrc << EOF
+           export HADOOP_PREFIX=/opt/hadoop
+           export HADOOP_HOME=\$HADOOP_PREFIX
+           export HADOOP_COMMON_HOME=\$HADOOP_PREFIX
+           export HADOOP_CONF_DIR=\$HADOOP_PREFIX/etc/hadoop
+           export HADOOP_HDFS_HOME=\$HADOOP_PREFIX
+           export HADOOP_MAPRED_HOME=\$HADOOP_PREFIX
+           export HADOOP_YARN_HOME=\$HADOOP_PREFIX
+           export PATH=$PATH:\$HADOOP_PREFIX/sbin:\$HADOOP_PREFIX/bin
+           EOF
+           cat > /opt/hadoop/etc/hadoop/core-site.xml << EOF
+           <configuration>
+           <property>
+              <name>fs.defaultFS</name>
+              <value>hdfs://nodo1.novalocal:9000/</value>
+           </property>
+           </configuration>
+           EOF
+           chown hadoop /opt/hadoop/ -R
+           chgrp hadoop /opt/hadoop/ -R
+           mkdir /home/hadoop/datanode
+           chown hadoop /home/hadoop/datanode/
+           chgrp hadoop /home/hadoop/datanode/
+           cat > /opt/hadoop/etc/hadoop/hdfs-site.xml << EOF
+           <configuration>
+           <property>
+             <name>dfs.replication</name>
+             <value>3</value>
+           </property>
+           <property>
+             <name>dfs.permissions</name>
+             <value>false</value>
+           </property>
+           <property>
+             <name>dfs.datanode.data.dir</name>
+             <value>/home/hadoop/datanode</value>
+           </property>
+           </configuration>
+           EOF
+           curl -k -X PUT -H 'Content-Type:application/json' \
+                   -d '{"Status" : "SUCCESS","Reason" : "Configuration OK","UniqueId" : "NODO4","Data" : "Nodo4 started Configured."}' \
+                   "$wait_handle$"
+          params:
+            $ROOT_PW: {get_resource: root_pw}
+            $HADOOP_PW: {get_resource: root_pw}
+            $IP_FIX_NODE1: {get_param: fixed_ip_nodo_1}
+            $IP_FIX_NODE2: {get_param: fixed_ip_nodo_2}
+            $IP_FIX_NODE3: {get_param: fixed_ip_nodo_3}
+            $IP_FIX_NODE4: {get_param: fixed_ip_nodo_4}
+            $IP_FIX_NODE5: {get_param: fixed_ip_nodo_5}
+            $IP_FIX_NODE6: {get_param: fixed_ip_nodo_6}
+            $wait_handle$: { get_resource: nodo4_instance_wait_handle }
+
+  nodo4_instance_wait:
+    type: "AWS::CloudFormation::WaitCondition"
+    depends_on: nodo4_server_instance
+    properties:
+      Handle:
+        get_resource: nodo4_instance_wait_handle
+      Timeout: 3600
+
+  nodo4_instance_wait_handle:
+    type: "AWS::CloudFormation::WaitConditionHandle"
+
+  pnodo5_server_port:
+    type: OS::Neutron::Port
+    properties:
+      name: "pnodo5-server-port"
+      network_id: f43b395b-f64e-4b20-99d1-5dec84b2ccf7
+      fixed_ips:
+        - { ip_address: { get_param: fixed_ip_nodo_5 }, subnet: sub-OCP-lan }
+      security_groups: [{Ref: sshPingBigData_sg},]
+  
+  nodo5_server_instance:
+    type: OS::Nova::Server
+    depends_on: nodo4_instance_wait
+    properties:
+      name: "nodo5"
+      key_name: { get_param: key_name_user }
+      image: { get_param: image_centos_7 }
+      flavor: m1.medium
+      #security_groups: [{Ref: sshPingBigData_sg},]
+      networks:
+        - port: { get_resource: pnodo5_server_port }
+      user_data_format: RAW
+      user_data:
+        str_replace:
+          template: |
+           #!/bin/bash
+           echo -n root:$ROOT_PW | chpasswd
+           sed -i s/"PermitRootLogin without-password$"/"PermitRootLogin yes"/ /etc/ssh/sshd_config
+           sed -i s/"PasswordAuthentication no$"/"PasswordAuthentication yes"/ /etc/ssh/sshd_config
+           service sshd restart
+           cat > /etc/hosts << EOF
+           $IP_FIX_NODE1    nodo1.novalocal nodo1
+           $IP_FIX_NODE2    nodo2.novalocal nodo2
+           $IP_FIX_NODE3    nodo3.novalocal nodo3
+           $IP_FIX_NODE4    nodo4.novalocal nodo4
+           $IP_FIX_NODE5    nodo5.novalocal nodo5
+           $IP_FIX_NODE6    nodo6.novalocal nodo6
+           127.0.0.1   localhost localhost.localdomain localhost4 localhost4.localdomain4
+           ::1         localhost localhost.localdomain localhost6 localhost6.localdomain6
+           EOF
+           yum update
+           yum install -y ntp tar wget git telnet
+           cat > /etc/hostname  << EOF
+           nodo5.novalocal nodo5
+           EOF
+           yum -y install http://dl.fedoraproject.org/pub/epel/7/x86_64/e/epel-release-7-8.noarch.rpm
+           yum -y install sshpass
+           cd /opt
+           wget --no-cookies --no-check-certificate --header "Cookie: gpw_e24=http%3A%2F%2Fwww.oracle.com%2F; oraclelicense=accept-securebackup-cookie" "http://download.oracle.com/otn-pub/java/jdk/8u101-b13/jdk-8u101-linux-x64.tar.gz"
+           tar -zxf /opt/jdk-8u101-linux-x64.tar.gz
+           mv jdk1.8.0_101 jdk
+           alternatives --install /usr/bin/java java /opt/jdk/bin/java 2
+           alternatives --install /usr/bin/jar jar /opt/jdk/bin/jar 2
+           alternatives --install /usr/bin/javac javac /opt/jdk/bin/javac 2
+           alternatives --set jar /opt/jdk/bin/jar
+           alternatives --set javac /opt/jdk/bin/javac
+           alternatives --set java /opt/jdk/bin/java
+           cat >> /etc/bashrc << EOF
+           export JAVA_HOME=/opt/jdk
+           export JRE_HOME=/opt/jdk/jre
+           export PATH=$PATH:/opt/jdk/bin:/opt/jdk/jre/bin
+           EOF
+           cat >> /etc/sysctl.conf << EOF
+           net.ipv6.conf.all.disable_ipv6 = 1
+           net.ipv6.conf.default.disable_ipv6 = 1
+           EOF
+           chmod 777 /opt/
+           useradd hadoop
+           echo -n hadoop:$HADOOP_PW | chpasswd
+           mkdir -p /home/hadoop/.ssh
+           echo | ssh-keygen -f hadoop -P ''
+           mv hadoop /home/hadoop/.ssh/id_rsa
+           mv hadoop.pub /home/hadoop/.ssh/id_rsa.pub
+           chown -R hadoop.hadoop /home/hadoop/.ssh
+           sudo sshpass -p '$ROOT_PW' scp -o StrictHostKeyChecking=no root@$IP_FIX_NODE1:/home/hadoop/.ssh/id_rsa.pub /home/hadoop/.ssh/authorized_keys
+           chown -R hadoop.hadoop /home/hadoop/.ssh
+           chmod 600 /home/hadoop/.ssh/authorized_keys
+           source /etc/bashrc
+           cd /opt
+           wget http://www.eu.apache.org/dist/hadoop/common/hadoop-2.6.0/hadoop-2.6.0.tar.gz
+           tar -zxf hadoop-2.6.0.tar.gz
+           mv hadoop-2.6.0 hadoop
+           cat >> /home/hadoop/.bashrc << EOF
+           export HADOOP_PREFIX=/opt/hadoop
+           export HADOOP_HOME=\$HADOOP_PREFIX
+           export HADOOP_COMMON_HOME=\$HADOOP_PREFIX
+           export HADOOP_CONF_DIR=\$HADOOP_PREFIX/etc/hadoop
+           export HADOOP_HDFS_HOME=\$HADOOP_PREFIX
+           export HADOOP_MAPRED_HOME=\$HADOOP_PREFIX
+           export HADOOP_YARN_HOME=\$HADOOP_PREFIX
+           export PATH=$PATH:\$HADOOP_PREFIX/sbin:\$HADOOP_PREFIX/bin
+           EOF
+           cat > /opt/hadoop/etc/hadoop/core-site.xml << EOF
+           <configuration>
+           <property>
+              <name>fs.defaultFS</name>
+              <value>hdfs://nodo1.novalocal:9000/</value>
+           </property>
+           </configuration>
+           EOF
+           chown hadoop /opt/hadoop/ -R
+           chgrp hadoop /opt/hadoop/ -R
+           mkdir /home/hadoop/datanode
+           chown hadoop /home/hadoop/datanode/
+           chgrp hadoop /home/hadoop/datanode/
+           cat > /opt/hadoop/etc/hadoop/hdfs-site.xml << EOF
+           <configuration>
+           <property>
+             <name>dfs.replication</name>
+             <value>3</value>
+           </property>
+           <property>
+             <name>dfs.permissions</name>
+             <value>false</value>
+           </property>
+           <property>
+             <name>dfs.datanode.data.dir</name>
+             <value>/home/hadoop/datanode</value>
+           </property>
+           </configuration>
+           EOF
+           curl -k -X PUT -H 'Content-Type:application/json' \
+                   -d '{"Status" : "SUCCESS","Reason" : "Configuration OK","UniqueId" : "NODO5","Data" : "Nodo5 started Configured."}' \
+                   "$wait_handle$"
+          params:
+            $ROOT_PW: {get_resource: root_pw}
+            $HADOOP_PW: {get_resource: root_pw}
+            $IP_FIX_NODE1: {get_param: fixed_ip_nodo_1}
+            $IP_FIX_NODE2: {get_param: fixed_ip_nodo_2}
+            $IP_FIX_NODE3: {get_param: fixed_ip_nodo_3}
+            $IP_FIX_NODE4: {get_param: fixed_ip_nodo_4}
+            $IP_FIX_NODE5: {get_param: fixed_ip_nodo_5}
+            $IP_FIX_NODE6: {get_param: fixed_ip_nodo_6}
+            $wait_handle$: { get_resource: nodo5_instance_wait_handle }
+
+  nodo5_instance_wait:
+    type: "AWS::CloudFormation::WaitCondition"
+    depends_on: nodo5_server_instance
+    properties:
+      Handle:
+        get_resource: nodo5_instance_wait_handle
+      Timeout: 3600
+
+  nodo5_instance_wait_handle:
+    type: "AWS::CloudFormation::WaitConditionHandle"
+
+  pnodo6_server_port:
+    type: OS::Neutron::Port
+    properties:
+      name: "pnodo6-server-port"
+      network_id: f43b395b-f64e-4b20-99d1-5dec84b2ccf7
+      fixed_ips:
+        - { ip_address: { get_param: fixed_ip_nodo_6 }, subnet: sub-OCP-lan }
+      security_groups: [{Ref: sshPingBigData_sg},]
+
+  nodo6_server_instance:
+    type: OS::Nova::Server
+    depends_on: nodo5_instance_wait
+    properties:
+      name: "nodo6"
+      key_name: { get_param: key_name_user }
+      image: { get_param: image_centos_7 }
+      flavor: m1.medium
+      #security_groups: [{Ref: sshPingBigData_sg},]
+      networks:
+        - port: { get_resource: pnodo6_server_port }
+      user_data_format: RAW
+      user_data:
+        str_replace:
+          template: |
+           #!/bin/bash
+           echo -n root:$ROOT_PW | chpasswd
+           sed -i s/"PermitRootLogin without-password$"/"PermitRootLogin yes"/ /etc/ssh/sshd_config
+           sed -i s/"PasswordAuthentication no$"/"PasswordAuthentication yes"/ /etc/ssh/sshd_config
+           service sshd restart
+           cat > /etc/hosts << EOF
+           $IP_FIX_NODE1    nodo1.novalocal nodo1
+           $IP_FIX_NODE2    nodo2.novalocal nodo2
+           $IP_FIX_NODE3    nodo3.novalocal nodo3
+           $IP_FIX_NODE4    nodo4.novalocal nodo4
+           $IP_FIX_NODE5    nodo5.novalocal nodo5
+           $IP_FIX_NODE6    nodo6.novalocal nodo6
+           127.0.0.1   localhost localhost.localdomain localhost4 localhost4.localdomain4
+           ::1         localhost localhost.localdomain localhost6 localhost6.localdomain6
+           EOF
+           yum update
+           yum install -y ntp tar wget git telnet
+           cat > /etc/hostname  << EOF
+           nodo6.novalocal nodo6
+           EOF
+           yum -y install http://dl.fedoraproject.org/pub/epel/7/x86_64/e/epel-release-7-8.noarch.rpm
+           yum -y install sshpass
+           cd /opt
+           wget --no-cookies --no-check-certificate --header "Cookie: gpw_e24=http%3A%2F%2Fwww.oracle.com%2F; oraclelicense=accept-securebackup-cookie" "http://download.oracle.com/otn-pub/java/jdk/8u101-b13/jdk-8u101-linux-x64.tar.gz"
+           tar -zxf /opt/jdk-8u101-linux-x64.tar.gz
+           mv jdk1.8.0_101 jdk
+           alternatives --install /usr/bin/java java /opt/jdk/bin/java 2
+           alternatives --install /usr/bin/jar jar /opt/jdk/bin/jar 2
+           alternatives --install /usr/bin/javac javac /opt/jdk/bin/javac 2
+           alternatives --set jar /opt/jdk/bin/jar
+           alternatives --set javac /opt/jdk/bin/javac
+           alternatives --set java /opt/jdk/bin/java
+           cat >> /etc/bashrc << EOF
+           export JAVA_HOME=/opt/jdk
+           export JRE_HOME=/opt/jdk/jre
+           export PATH=$PATH:/opt/jdk/bin:/opt/jdk/jre/bin
+           EOF
+           cat >> /etc/sysctl.conf << EOF
+           net.ipv6.conf.all.disable_ipv6 = 1
+           net.ipv6.conf.default.disable_ipv6 = 1
+           EOF
+           chmod 777 /opt/
+           useradd hadoop
+           echo -n hadoop:$HADOOP_PW | chpasswd
+           mkdir -p /home/hadoop/.ssh
+           echo | ssh-keygen -f hadoop -P ''
+           mv hadoop /home/hadoop/.ssh/id_rsa
+           mv hadoop.pub /home/hadoop/.ssh/id_rsa.pub
+           chown -R hadoop.hadoop /home/hadoop/.ssh
+           sudo sshpass -p '$ROOT_PW' scp -o StrictHostKeyChecking=no root@$IP_FIX_NODE1:/home/hadoop/.ssh/id_rsa.pub /home/hadoop/.ssh/authorized_keys
+           chown -R hadoop.hadoop /home/hadoop/.ssh
+           chmod 600 /home/hadoop/.ssh/authorized_keys
+           source /etc/bashrc
+           cd /opt
+           wget http://www.eu.apache.org/dist/hadoop/common/hadoop-2.6.0/hadoop-2.6.0.tar.gz
+           tar -zxf hadoop-2.6.0.tar.gz
+           mv hadoop-2.6.0 hadoop
+           cat >> /home/hadoop/.bashrc << EOF
+           export HADOOP_PREFIX=/opt/hadoop
+           export HADOOP_HOME=\$HADOOP_PREFIX
+           export HADOOP_COMMON_HOME=\$HADOOP_PREFIX
+           export HADOOP_CONF_DIR=\$HADOOP_PREFIX/etc/hadoop
+           export HADOOP_HDFS_HOME=\$HADOOP_PREFIX
+           export HADOOP_MAPRED_HOME=$\HADOOP_PREFIX
+           export HADOOP_YARN_HOME=\$HADOOP_PREFIX
+           export PATH=$PATH:\$HADOOP_PREFIX/sbin:\$HADOOP_PREFIX/bin
+           EOF
+           cat > /opt/hadoop/etc/hadoop/core-site.xml << EOF
+           <configuration>
+           <property>
+              <name>fs.defaultFS</name>
+              <value>hdfs://nodo1.novalocal:9000/</value>
+           </property>
+           </configuration>
+           EOF
+           chown hadoop /opt/hadoop/ -R
+           chgrp hadoop /opt/hadoop/ -R
+           mkdir /home/hadoop/datanode
+           chown hadoop /home/hadoop/datanode/
+           chgrp hadoop /home/hadoop/datanode/
+           cat > /opt/hadoop/etc/hadoop/hdfs-site.xml << EOF
+           <configuration>
+           <property>
+             <name>dfs.replication</name>
+             <value>3</value>
+           </property>
+           <property>
+             <name>dfs.permissions</name>
+             <value>false</value>
+           </property>
+           <property>
+             <name>dfs.datanode.data.dir</name>
+             <value>/home/hadoop/datanode</value>
+           </property>
+           </configuration>
+           EOF
+          params:
+            $ROOT_PW: {get_resource: root_pw}
+            $HADOOP_PW: {get_resource: root_pw}
+            $IP_FIX_NODE1: {get_param: fixed_ip_nodo_1}
+            $IP_FIX_NODE2: {get_param: fixed_ip_nodo_2}
+            $IP_FIX_NODE3: {get_param: fixed_ip_nodo_3}
+            $IP_FIX_NODE4: {get_param: fixed_ip_nodo_4}
+            $IP_FIX_NODE5: {get_param: fixed_ip_nodo_5}
+            $IP_FIX_NODE6: {get_param: fixed_ip_nodo_6}
+
+outputs:
+  root_pw:
+    description: root pwd to access to all VMs in mesos cluster
+    value: {get_resource: root_pw}
+
+  hadoop_pw:
+    description: hadoop pwd to access to all VMs in hadoop cluster
+    value: {get_resource: hadoop_pw}
