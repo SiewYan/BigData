@@ -1,5 +1,5 @@
 heat_template_version: 2013-05-23
-description: Create VM, network and security group for Big Data testing 
+description: Create VM, network and security group for Big Data testing - spark + hadoop in CMS tenant
 
 parameters:
     
@@ -7,61 +7,67 @@ parameters:
     type: string
     label: Image name or ID
     description: Image used for all nodo in big data cluster (CentOS6 or SL6)
-    default: 5938e89b-1ff7-4caf-b090-79c949da7ba7 
+    default: 2820eb41-82c3-438e-be11-b50bbe177d90 
   
   flavor_to_use:
     type: string
-    label: Falvor name 
+    label: Flavor name 
     description: Flavor used for all nodos in big data cluster
-    default: m1.medium 
+    default: cldareapd.medium
 
   key_name_user:
     type: string
     label: Public ssh key of one user.
     description: Public ssh key of one user.
-    default: keyCMSuser 
+    default: pub
+
+  tenant_net_name:
+    type: string
+    label: Network ID of the tenant
+    description: This parameter has been set with the id of the tenant network. If you have more than one choose one of thoose.
+    default: c0326d8a-6959-4111-9cf6-0021a1b55eb9
 
   tenant_subnet_name:
     type: string
     label: Sub network of the tenant
-    description: This parameter has been set with the name of the teant sub network. If you have more than one choose one of thoose.
-    default: "sub-OCP-lan"
+    description: This parameter has been set with the name of the tenant sub network. If you have more than one choose one of thoose.
+    default: "sub-CMS-lan"
   
   fixed_ip_nodo_1:
     type: string
     label: Fixed ip for nodo1 host
     description: Fixed ip for nodo1 host
-    default: "10.64.12.40"
+    default: "10.64.22.60"
 
   fixed_ip_nodo_2:
     type: string
     label: Fixed ip for nodo2 host
     description: Fixed ip for nodo2 host
-    default: "10.64.12.41"
+    default: "10.64.22.61"
 
   fixed_ip_nodo_3:
     type: string
     label: Fixed ip for nodo3 host
     description: Fixed ip for nodo3 host
-    default: "10.64.12.42"
+    default: "10.64.22.62"
 
   fixed_ip_nodo_4:
     type: string
     label: Fixed ip for nodo4 host
     description: Fixed ip for nodo4 host
-    default: "10.64.12.43"
+    default: "10.64.22.63"
 
   fixed_ip_nodo_5:
     type: string
     label: Fixed ip for nodo5 host
     description: Fixed ip for nodo5 host
-    default: "10.64.12.44"
+    default: "10.64.22.64"
 
   fixed_ip_nodo_6:
     type: string
     label: Fixed ip for nodo6 host
     description: Fixed ip for nodo6 host
-    default: "10.64.12.45"
+    default: "10.64.22.65"
 
 resources:
   
@@ -79,7 +85,7 @@ resources:
   secgroup-bigdata_secgroup:
     type: OS::Neutron::SecurityGroup
     properties:
-      description: "Access to ssh, ping, mesos, marathon, chronos connections for all VM in this security group"
+      description: "Access to ssh, ping connections for all VM in this security group"
       name: "secgroup-bigdata"
       rules: [{"direction": ingress, "remote_ip_prefix": 0.0.0.0/0, "port_range_min": 5, "remote_mode": remote_ip_prefix, "port_range_max": 65522, "protocol": TCP}, {"direction": ingress, "remote_ip_prefix": 0.0.0.0/0, "remote_mode": remote_ip_prefix, "protocol": ICMP}]
 
@@ -88,7 +94,7 @@ resources:
     type: OS::Neutron::Port
     properties:
       name: "nodo1-server-port"
-      network_id: f43b395b-f64e-4b20-99d1-5dec84b2ccf7
+      network_id: { get_param: tenant_net_name }
       fixed_ips:
         - { ip_address: { get_param: fixed_ip_nodo_1 }, subnet: { get_param: tenant_subnet_name } }
       security_groups: [{Ref: secgroup-bigdata_secgroup},]
@@ -130,16 +136,16 @@ resources:
            sed -i 0,/'requiretty'/{s/'requiretty'/'!requiretty'/} /etc/sudoers
            yum -y install http://dl.fedoraproject.org/pub/epel/6/x86_64/epel-release-6-8.noarch.rpm 
            yum -y install sshpass
-           /usr/sbin/useradd hadoop
+           /usr/sbin/useradd hadoop -d /home1/hadoop
            echo -n hadoop:$HADOOP_PW | chpasswd
-           mkdir -p /home/hadoop/.ssh
+           mkdir -p /home1/hadoop/.ssh
            echo | ssh-keygen -f hadoop -P ''
-           mv hadoop /home/hadoop/.ssh/id_rsa
-           mv hadoop.pub /home/hadoop/.ssh/id_rsa.pub
-           chown -R hadoop.hadoop /home/hadoop/.ssh
-           sudo sshpass -p '$ROOT_PW' scp -o StrictHostKeyChecking=no root@$IP_FIX_NODE1:/home/hadoop/.ssh/id_rsa.pub /home/hadoop/.ssh/authorized_keys
-           chown -R hadoop.hadoop /home/hadoop/.ssh
-           chmod 600 /home/hadoop/.ssh/authorized_keys
+           mv hadoop /home1/hadoop/.ssh/id_rsa
+           mv hadoop.pub /home1/hadoop/.ssh/id_rsa.pub
+           chown -R hadoop.hadoop /home1/hadoop/.ssh
+           sudo sshpass -p '$ROOT_PW' scp -o StrictHostKeyChecking=no root@$IP_FIX_NODE1:/home1/hadoop/.ssh/id_rsa.pub /home1/hadoop/.ssh/authorized_keys
+           chown -R hadoop.hadoop /home1/hadoop/.ssh
+           chmod 600 /home1/hadoop/.ssh/authorized_keys
            curl -k -X PUT -H 'Content-Type:application/json' \
                    -d '{"Status" : "SUCCESS","Reason" : "Configuration OK","UniqueId" : "NODO1","Data" : "Nodo1 started Configured."}' \
                    "$wait_handle$"
@@ -168,7 +174,8 @@ resources:
            wget http://www.eu.apache.org/dist/hadoop/common/hadoop-2.6.0/hadoop-2.6.0.tar.gz
            tar -zxf hadoop-2.6.0.tar.gz
            mv hadoop-2.6.0 hadoop
-           cat >> /home/hadoop/.bashrc << EOF
+           cat >> /home1/hadoop/.bashrc << EOF
+           export JAVA_HOME=/opt/jdk
            export HADOOP_PREFIX=/opt/hadoop
            export HADOOP_HOME=\$HADOOP_PREFIX
            export HADOOP_COMMON_HOME=\$HADOOP_PREFIX
@@ -188,9 +195,9 @@ resources:
            EOF
            chown hadoop /opt/hadoop/ -R
            chgrp hadoop /opt/hadoop/ -R
-           mkdir /home/hadoop/datanode
-           chown hadoop /home/hadoop/datanode/
-           chgrp hadoop /home/hadoop/datanode/
+           mkdir /home1/hadoop/datanode
+           chown hadoop /home1/hadoop/datanode/
+           chgrp hadoop /home1/hadoop/datanode/
            cat > /opt/hadoop/etc/hadoop/hdfs-site.xml << EOF
            <configuration>
            <property>
@@ -203,13 +210,13 @@ resources:
            </property>
            <property>
              <name>dfs.datanode.data.dir</name>
-             <value>/home/hadoop/datanode</value>
+             <value>/home1/hadoop/datanode</value>
            </property>
            </configuration>
            EOF
-           mkdir /home/hadoop/namenode
-           chown hadoop /home/hadoop/namenode/
-           chgrp hadoop /home/hadoop/namenode/
+           mkdir /home1/hadoop/namenode
+           chown hadoop /home1/hadoop/namenode/
+           chgrp hadoop /home1/hadoop/namenode/
            cat > /opt/hadoop/etc/hadoop/mapred-site.xml << EOF
            <configuration>
            <property>
@@ -242,6 +249,7 @@ resources:
            nodo5
            nodo6
            EOF
+           chown -R hadoop.hadoop /home1/*
            cd /opt
            wget http://mirror.nohup.it/apache/spark/spark-2.1.0/spark-2.1.0-bin-hadoop2.6.tgz
            tar -zxf  spark-2.1.0-bin-hadoop2.6.tgz
@@ -272,7 +280,6 @@ resources:
 
            export MASTER="yarn-client"
            export SPARK_LOCAL_IP=$IP_FIX_NODE1
-           export MESOS_NATIVE_JAVA_LIBRARY="/usr/lib/libmesos.so"
            export SPARK_EXECUTOR_HOME="/opt/spark-2.1.0-bin-hadoop2.6"
            export YARN_APPLICATION_CLASSPATH="log4j.properties"
 
@@ -286,19 +293,19 @@ resources:
            source /opt/spark-2.1.0-bin-hadoop2.6/conf/spark-env.sh; /opt/spark-2.1.0-bin-hadoop2.6/sbin/start-master.sh
 
            /bin/sleep 300 
-           ssh-keyscan -H $IP_FIX_NODE1 >> /home/hadoop/.ssh/known_hosts
-           ssh-keyscan -H nodo1 >> /home/hadoop/.ssh/known_hosts
-           ssh-keyscan -H $IP_FIX_NODE2 >> /home/hadoop/.ssh/known_hosts
-           ssh-keyscan -H nodo2 >> /home/hadoop/.ssh/known_hosts
-           ssh-keyscan -H $IP_FIX_NODE3 >> /home/hadoop/.ssh/known_hosts
-           ssh-keyscan -H nodo3 >> /home/hadoop/.ssh/known_hosts
-           ssh-keyscan -H $IP_FIX_NODE4 >> /home/hadoop/.ssh/known_hosts
-           ssh-keyscan -H nodo4 >> /home/hadoop/.ssh/known_hosts
-           ssh-keyscan -H $IP_FIX_NODE5 >> /home/hadoop/.ssh/known_hosts
-           ssh-keyscan -H nodo5 >> /home/hadoop/.ssh/known_hosts
-           ssh-keyscan -H $IP_FIX_NODE6 >> /home/hadoop/.ssh/known_hosts
-           ssh-keyscan -H nodo6 >> /home/hadoop/.ssh/known_hosts
-           chown -R hadoop.hadoop /home/hadoop/.ssh
+           ssh-keyscan -H $IP_FIX_NODE1 >> /home1/hadoop/.ssh/known_hosts
+           ssh-keyscan -H nodo1 >> /home1/hadoop/.ssh/known_hosts
+           ssh-keyscan -H $IP_FIX_NODE2 >> /home1/hadoop/.ssh/known_hosts
+           ssh-keyscan -H nodo2 >> /home1/hadoop/.ssh/known_hosts
+           ssh-keyscan -H $IP_FIX_NODE3 >> /home1/hadoop/.ssh/known_hosts
+           ssh-keyscan -H nodo3 >> /home1/hadoop/.ssh/known_hosts
+           ssh-keyscan -H $IP_FIX_NODE4 >> /home1/hadoop/.ssh/known_hosts
+           ssh-keyscan -H nodo4 >> /home1/hadoop/.ssh/known_hosts
+           ssh-keyscan -H $IP_FIX_NODE5 >> /home1/hadoop/.ssh/known_hosts
+           ssh-keyscan -H nodo5 >> /home1/hadoop/.ssh/known_hosts
+           ssh-keyscan -H $IP_FIX_NODE6 >> /home1/hadoop/.ssh/known_hosts
+           ssh-keyscan -H nodo6 >> /home1/hadoop/.ssh/known_hosts
+           chown -R hadoop.hadoop /home1/hadoop/.ssh
            sudo -u hadoop /opt/hadoop/bin/hdfs namenode -format
            sudo -u hadoop /opt/hadoop/sbin/start-dfs.sh
            sudo -u hadoop /opt/hadoop/sbin/start-yarn.sh
@@ -329,7 +336,7 @@ resources:
     type: OS::Neutron::Port
     properties:
       name: "nodo2-server-port"
-      network_id: f43b395b-f64e-4b20-99d1-5dec84b2ccf7
+      network_id: { get_param: tenant_net_name }
       fixed_ips:
         - { ip_address: { get_param: fixed_ip_nodo_2 }, subnet: { get_param: tenant_subnet_name } }
       security_groups: [{Ref: secgroup-bigdata_secgroup},]
@@ -372,16 +379,16 @@ resources:
            sed -i 0,/'requiretty'/{s/'requiretty'/'!requiretty'/} /etc/sudoers
            yum -y install http://dl.fedoraproject.org/pub/epel/6/x86_64/epel-release-6-8.noarch.rpm
            yum -y install sshpass
-           /usr/sbin/useradd hadoop
+           /usr/sbin/useradd hadoop -d /home1/hadoop
            echo -n hadoop:$HADOOP_PW | chpasswd
-           mkdir -p /home/hadoop/.ssh
+           mkdir -p /home1/hadoop/.ssh
            echo | ssh-keygen -f hadoop -P ''
-           mv hadoop /home/hadoop/.ssh/id_rsa
-           mv hadoop.pub /home/hadoop/.ssh/id_rsa.pub
-           chown -R hadoop.hadoop /home/hadoop/.ssh
-           sudo sshpass -p '$ROOT_PW' scp -o StrictHostKeyChecking=no root@$IP_FIX_NODE1:/home/hadoop/.ssh/id_rsa.pub /home/hadoop/.ssh/authorized_keys
-           chown -R hadoop.hadoop /home/hadoop/.ssh
-           chmod 600 /home/hadoop/.ssh/authorized_keys
+           mv hadoop /home1/hadoop/.ssh/id_rsa
+           mv hadoop.pub /home1/hadoop/.ssh/id_rsa.pub
+           chown -R hadoop.hadoop /home1/hadoop/.ssh
+           sudo sshpass -p '$ROOT_PW' scp -o StrictHostKeyChecking=no root@$IP_FIX_NODE1:/home1/hadoop/.ssh/id_rsa.pub /home1/hadoop/.ssh/authorized_keys
+           chown -R hadoop.hadoop /home1/hadoop/.ssh
+           chmod 600 /home1/hadoop/.ssh/authorized_keys
            cd /opt
            wget --no-cookies --no-check-certificate --header "Cookie: gpw_e24=http%3A%2F%2Fwww.oracle.com%2F; oraclelicense=accept-securebackup-cookie" "http://download.oracle.com/otn-pub/java/jdk/8u101-b13/jdk-8u101-linux-x64.tar.gz"
            tar -zxf /opt/jdk-8u101-linux-x64.tar.gz
@@ -407,7 +414,8 @@ resources:
            wget http://www.eu.apache.org/dist/hadoop/common/hadoop-2.6.0/hadoop-2.6.0.tar.gz
            tar -zxf hadoop-2.6.0.tar.gz
            mv hadoop-2.6.0 hadoop
-           cat >> /home/hadoop/.bashrc << EOF
+           cat >> /home1/hadoop/.bashrc << EOF
+           export JAVA_HOME=/opt/jdk
            export HADOOP_PREFIX=/opt/hadoop
            export HADOOP_HOME=\$HADOOP_PREFIX
            export HADOOP_COMMON_HOME=\$HADOOP_PREFIX
@@ -427,9 +435,9 @@ resources:
            EOF
            chown hadoop /opt/hadoop/ -R
            chgrp hadoop /opt/hadoop/ -R
-           mkdir /home/hadoop/datanode
-           chown hadoop /home/hadoop/datanode/
-           chgrp hadoop /home/hadoop/datanode/
+           mkdir /home1/hadoop/datanode
+           chown hadoop /home1/hadoop/datanode/
+           chgrp hadoop /home1/hadoop/datanode/
            cat > /opt/hadoop/etc/hadoop/hdfs-site.xml << EOF
            <configuration>
            <property>
@@ -442,10 +450,11 @@ resources:
            </property>
            <property>
              <name>dfs.datanode.data.dir</name>
-             <value>/home/hadoop/datanode</value>
+             <value>/home1/hadoop/datanode</value>
            </property>
            </configuration>
            EOF
+           chown -R hadoop.hadoop /home1/*
            cd /opt
            wget http://mirror.nohup.it/apache/spark/spark-2.1.0/spark-2.1.0-bin-hadoop2.6.tgz
            tar -zxf  spark-2.1.0-bin-hadoop2.6.tgz
@@ -476,7 +485,6 @@ resources:
            
            export MASTER="yarn-client"
            export SPARK_LOCAL_IP=$IP_FIX_NODE2
-           export MESOS_NATIVE_JAVA_LIBRARY="/usr/lib/libmesos.so"
            export SPARK_EXECUTOR_HOME="/opt/spark-2.1.0-bin-hadoop2.6"
            export YARN_APPLICATION_CLASSPATH="log4j.properties"
 
@@ -503,7 +511,7 @@ resources:
     type: OS::Neutron::Port
     properties:
       name: "nodo3-server-port"
-      network_id: f43b395b-f64e-4b20-99d1-5dec84b2ccf7
+      network_id: { get_param: tenant_net_name }
       fixed_ips:
         - { ip_address: { get_param: fixed_ip_nodo_3 }, subnet: { get_param: tenant_subnet_name } }
       security_groups: [{Ref: secgroup-bigdata_secgroup},]
@@ -546,16 +554,17 @@ resources:
            sed -i 0,/'requiretty'/{s/'requiretty'/'!requiretty'/} /etc/sudoers
            yum -y install http://dl.fedoraproject.org/pub/epel/6/x86_64/epel-release-6-8.noarch.rpm 
            yum -y install sshpass
-           /usr/sbin/useradd hadoop
+           /usr/sbin/useradd hadoop -d /home1/hadoop
            echo -n hadoop:$HADOOP_PW | chpasswd
-           mkdir -p /home/hadoop/.ssh
+           mkdir -p /home1/hadoop/.ssh
            echo | ssh-keygen -f hadoop -P ''
-           mv hadoop /home/hadoop/.ssh/id_rsa
-           mv hadoop.pub /home/hadoop/.ssh/id_rsa.pub
-           chown -R hadoop.hadoop /home/hadoop/.ssh
-           sudo sshpass -p '$ROOT_PW' scp -o StrictHostKeyChecking=no root@$IP_FIX_NODE1:/home/hadoop/.ssh/id_rsa.pub /home/hadoop/.ssh/authorized_keys
-           chown -R hadoop.hadoop /home/hadoop/.ssh
-           chmod 600 /home/hadoop/.ssh/authorized_keys
+           mv hadoop /home1/hadoop/.ssh/id_rsa
+           mv hadoop.pub /home1/hadoop/.ssh/id_rsa.pub
+           chown -R hadoop.hadoop /home1/hadoop/.ssh
+           sudo sshpass -p '$ROOT_PW' scp -o StrictHostKeyChecking=no root@$IP_FIX_NODE1:/home1/hadoop/.ssh/id_rsa.pub /home1/hadoop/.ssh/authorized_keys
+           chown -R hadoop.hadoop /home1/hadoop/.ssh
+           chmod 600 /home1/hadoop/.ssh/authorized_keys
+           cd /opt 
            wget --no-cookies --no-check-certificate --header "Cookie: gpw_e24=http%3A%2F%2Fwww.oracle.com%2F; oraclelicense=accept-securebackup-cookie" "http://download.oracle.com/otn-pub/java/jdk/8u101-b13/jdk-8u101-linux-x64.tar.gz"
            tar -zxf /opt/jdk-8u101-linux-x64.tar.gz
            mv jdk1.8.0_101 jdk
@@ -580,7 +589,8 @@ resources:
            wget http://www.eu.apache.org/dist/hadoop/common/hadoop-2.6.0/hadoop-2.6.0.tar.gz
            tar -zxf hadoop-2.6.0.tar.gz
            mv hadoop-2.6.0 hadoop
-           cat >> /home/hadoop/.bashrc << EOF
+           cat >> /home1/hadoop/.bashrc << EOF
+           export JAVA_HOME=/opt/jdk
            export HADOOP_PREFIX=/opt/hadoop
            export HADOOP_HOME=\$HADOOP_PREFIX
            export HADOOP_COMMON_HOME=\$HADOOP_PREFIX
@@ -600,9 +610,9 @@ resources:
            EOF
            chown hadoop /opt/hadoop/ -R
            chgrp hadoop /opt/hadoop/ -R
-           mkdir /home/hadoop/datanode
-           chown hadoop /home/hadoop/datanode/
-           chgrp hadoop /home/hadoop/datanode/
+           mkdir /home1/hadoop/datanode
+           chown hadoop /home1/hadoop/datanode/
+           chgrp hadoop /home1/hadoop/datanode/
            cat > /opt/hadoop/etc/hadoop/hdfs-site.xml << EOF
            <configuration>
            <property>
@@ -615,10 +625,11 @@ resources:
            </property>
            <property>
              <name>dfs.datanode.data.dir</name>
-             <value>/home/hadoop/datanode</value>
+             <value>/home1/hadoop/datanode</value>
            </property>
            </configuration>
            EOF
+           chown -R hadoop.hadoop /home1/*
            cd /opt
            wget http://mirror.nohup.it/apache/spark/spark-2.1.0/spark-2.1.0-bin-hadoop2.6.tgz
            tar -zxf  spark-2.1.0-bin-hadoop2.6.tgz
@@ -649,7 +660,6 @@ resources:
 
            export MASTER="yarn-client"
            export SPARK_LOCAL_IP=$IP_FIX_NODE3
-           export MESOS_NATIVE_JAVA_LIBRARY="/usr/lib/libmesos.so"
            export SPARK_EXECUTOR_HOME="/opt/spark-2.1.0-bin-hadoop2.6"
            export YARN_APPLICATION_CLASSPATH="log4j.properties"
 
@@ -675,7 +685,7 @@ resources:
     type: OS::Neutron::Port
     properties:
       name: "nodo4-server-port"
-      network_id: f43b395b-f64e-4b20-99d1-5dec84b2ccf7
+      network_id: { get_param: tenant_net_name }
       fixed_ips:
         - { ip_address: { get_param: fixed_ip_nodo_4 }, subnet: { get_param: tenant_subnet_name } }
       security_groups: [{Ref: secgroup-bigdata_secgroup},]
@@ -718,16 +728,16 @@ resources:
            EOF
            yum -y install http://dl.fedoraproject.org/pub/epel/6/x86_64/epel-release-6-8.noarch.rpm 
            yum -y install sshpass
-           /usr/sbin/useradd hadoop
+           /usr/sbin/useradd hadoop -d /home1/hadoop
            echo -n hadoop:$HADOOP_PW | chpasswd
-           mkdir -p /home/hadoop/.ssh
+           mkdir -p /home1/hadoop/.ssh
            echo | ssh-keygen -f hadoop -P ''
-           mv hadoop /home/hadoop/.ssh/id_rsa
-           mv hadoop.pub /home/hadoop/.ssh/id_rsa.pub
-           chown -R hadoop.hadoop /home/hadoop/.ssh
-           sudo sshpass -p '$ROOT_PW' scp -o StrictHostKeyChecking=no root@$IP_FIX_NODE1:/home/hadoop/.ssh/id_rsa.pub /home/hadoop/.ssh/authorized_keys
-           chown -R hadoop.hadoop /home/hadoop/.ssh
-           chmod 600 /home/hadoop/.ssh/authorized_keys
+           mv hadoop /home1/hadoop/.ssh/id_rsa
+           mv hadoop.pub /home1/hadoop/.ssh/id_rsa.pub
+           chown -R hadoop.hadoop /home1/hadoop/.ssh
+           sudo sshpass -p '$ROOT_PW' scp -o StrictHostKeyChecking=no root@$IP_FIX_NODE1:/home1/hadoop/.ssh/id_rsa.pub /home1/hadoop/.ssh/authorized_keys
+           chown -R hadoop.hadoop /home1/hadoop/.ssh
+           chmod 600 /home1/hadoop/.ssh/authorized_keys
            cd /opt
            wget --no-cookies --no-check-certificate --header "Cookie: gpw_e24=http%3A%2F%2Fwww.oracle.com%2F; oraclelicense=accept-securebackup-cookie" "http://download.oracle.com/otn-pub/java/jdk/8u101-b13/jdk-8u101-linux-x64.tar.gz"
            tar -zxf /opt/jdk-8u101-linux-x64.tar.gz
@@ -753,7 +763,8 @@ resources:
            wget http://www.eu.apache.org/dist/hadoop/common/hadoop-2.6.0/hadoop-2.6.0.tar.gz
            tar -zxf hadoop-2.6.0.tar.gz
            mv hadoop-2.6.0 hadoop
-           cat >> /home/hadoop/.bashrc << EOF
+           cat >> /home1/hadoop/.bashrc << EOF
+           export JAVA_HOME=/opt/jdk
            export HADOOP_PREFIX=/opt/hadoop
            export HADOOP_HOME=\$HADOOP_PREFIX
            export HADOOP_COMMON_HOME=\$HADOOP_PREFIX
@@ -773,9 +784,9 @@ resources:
            EOF
            chown hadoop /opt/hadoop/ -R
            chgrp hadoop /opt/hadoop/ -R
-           mkdir /home/hadoop/datanode
-           chown hadoop /home/hadoop/datanode/
-           chgrp hadoop /home/hadoop/datanode/
+           mkdir /home1/hadoop/datanode
+           chown hadoop /home1/hadoop/datanode/
+           chgrp hadoop /home1/hadoop/datanode/
            cat > /opt/hadoop/etc/hadoop/hdfs-site.xml << EOF
            <configuration>
            <property>
@@ -788,10 +799,11 @@ resources:
            </property>
            <property>
              <name>dfs.datanode.data.dir</name>
-             <value>/home/hadoop/datanode</value>
+             <value>/home1/hadoop/datanode</value>
            </property>
            </configuration>
            EOF
+           chown -R hadoop.hadoop /home1/*
            cd /opt
            wget http://mirror.nohup.it/apache/spark/spark-2.1.0/spark-2.1.0-bin-hadoop2.6.tgz
            tar -zxf  spark-2.1.0-bin-hadoop2.6.tgz
@@ -822,7 +834,6 @@ resources:
 
            export MASTER="yarn-client"
            export SPARK_LOCAL_IP=$IP_FIX_NODE4
-           export MESOS_NATIVE_JAVA_LIBRARY="/usr/lib/libmesos.so"
            export SPARK_EXECUTOR_HOME="/opt/spark-2.1.0-bin-hadoop2.6"
            export YARN_APPLICATION_CLASSPATH="log4j.properties"
 
@@ -848,7 +859,7 @@ resources:
     type: OS::Neutron::Port
     properties:
       name: "nodo5-server-port"
-      network_id: f43b395b-f64e-4b20-99d1-5dec84b2ccf7
+      network_id: { get_param: tenant_net_name }
       fixed_ips:
         - { ip_address: { get_param: fixed_ip_nodo_5 }, subnet: { get_param: tenant_subnet_name } }
       security_groups: [{Ref: secgroup-bigdata_secgroup},]
@@ -891,16 +902,16 @@ resources:
            EOF
            yum -y install http://dl.fedoraproject.org/pub/epel/6/x86_64/epel-release-6-8.noarch.rpm 
            yum -y install sshpass
-           /usr/sbin/useradd hadoop
+           /usr/sbin/useradd hadoop -d /home1/hadoop
            echo -n hadoop:$HADOOP_PW | chpasswd
-           mkdir -p /home/hadoop/.ssh
+           mkdir -p /home1/hadoop/.ssh
            echo | ssh-keygen -f hadoop -P ''
-           mv hadoop /home/hadoop/.ssh/id_rsa
-           mv hadoop.pub /home/hadoop/.ssh/id_rsa.pub
-           chown -R hadoop.hadoop /home/hadoop/.ssh
-           sudo sshpass -p '$ROOT_PW' scp -o StrictHostKeyChecking=no root@$IP_FIX_NODE1:/home/hadoop/.ssh/id_rsa.pub /home/hadoop/.ssh/authorized_keys
-           chown -R hadoop.hadoop /home/hadoop/.ssh
-           chmod 600 /home/hadoop/.ssh/authorized_keys
+           mv hadoop /home1/hadoop/.ssh/id_rsa
+           mv hadoop.pub /home1/hadoop/.ssh/id_rsa.pub
+           chown -R hadoop.hadoop /home1/hadoop/.ssh
+           sudo sshpass -p '$ROOT_PW' scp -o StrictHostKeyChecking=no root@$IP_FIX_NODE1:/home1/hadoop/.ssh/id_rsa.pub /home1/hadoop/.ssh/authorized_keys
+           chown -R hadoop.hadoop /home1/hadoop/.ssh
+           chmod 600 /home1/hadoop/.ssh/authorized_keys
            cd /opt
            wget --no-cookies --no-check-certificate --header "Cookie: gpw_e24=http%3A%2F%2Fwww.oracle.com%2F; oraclelicense=accept-securebackup-cookie" "http://download.oracle.com/otn-pub/java/jdk/8u101-b13/jdk-8u101-linux-x64.tar.gz"
            tar -zxf /opt/jdk-8u101-linux-x64.tar.gz
@@ -926,7 +937,8 @@ resources:
            wget http://www.eu.apache.org/dist/hadoop/common/hadoop-2.6.0/hadoop-2.6.0.tar.gz
            tar -zxf hadoop-2.6.0.tar.gz
            mv hadoop-2.6.0 hadoop
-           cat >> /home/hadoop/.bashrc << EOF
+           cat >> /home1/hadoop/.bashrc << EOF
+           export JAVA_HOME=/opt/jdk
            export HADOOP_PREFIX=/opt/hadoop
            export HADOOP_HOME=\$HADOOP_PREFIX
            export HADOOP_COMMON_HOME=\$HADOOP_PREFIX
@@ -946,9 +958,9 @@ resources:
            EOF
            chown hadoop /opt/hadoop/ -R
            chgrp hadoop /opt/hadoop/ -R
-           mkdir /home/hadoop/datanode
-           chown hadoop /home/hadoop/datanode/
-           chgrp hadoop /home/hadoop/datanode/
+           mkdir /home1/hadoop/datanode
+           chown hadoop /home1/hadoop/datanode/
+           chgrp hadoop /home1/hadoop/datanode/
            cat > /opt/hadoop/etc/hadoop/hdfs-site.xml << EOF
            <configuration>
            <property>
@@ -961,10 +973,11 @@ resources:
            </property>
            <property>
              <name>dfs.datanode.data.dir</name>
-             <value>/home/hadoop/datanode</value>
+             <value>/home1/hadoop/datanode</value>
            </property>
            </configuration>
            EOF
+           chown -R hadoop.hadoop /home1/*
            cd /opt
            wget http://mirror.nohup.it/apache/spark/spark-2.1.0/spark-2.1.0-bin-hadoop2.6.tgz
            tar -zxf  spark-2.1.0-bin-hadoop2.6.tgz
@@ -995,7 +1008,6 @@ resources:
 
            export MASTER="yarn-client"
            export SPARK_LOCAL_IP=$IP_FIX_NODE5
-           export MESOS_NATIVE_JAVA_LIBRARY="/usr/lib/libmesos.so"
            export SPARK_EXECUTOR_HOME="/opt/spark-2.1.0-bin-hadoop2.6"
            export YARN_APPLICATION_CLASSPATH="log4j.properties"
 
@@ -1055,16 +1067,16 @@ resources:
            EOF
            yum -y install http://dl.fedoraproject.org/pub/epel/6/x86_64/epel-release-6-8.noarch.rpm 
            yum -y install sshpass
-           /usr/sbin/useradd hadoop
+           /usr/sbin/useradd hadoop -d /home1/hadoop
            echo -n hadoop:$HADOOP_PW | chpasswd
-           mkdir -p /home/hadoop/.ssh
+           mkdir -p /home1/hadoop/.ssh
            echo | ssh-keygen -f hadoop -P ''
-           mv hadoop /home/hadoop/.ssh/id_rsa
-           mv hadoop.pub /home/hadoop/.ssh/id_rsa.pub
-           chown -R hadoop.hadoop /home/hadoop/.ssh
-           sudo sshpass -p '$ROOT_PW' scp -o StrictHostKeyChecking=no root@$IP_FIX_NODE1:/home/hadoop/.ssh/id_rsa.pub /home/hadoop/.ssh/authorized_keys
-           chown -R hadoop.hadoop /home/hadoop/.ssh
-           chmod 600 /home/hadoop/.ssh/authorized_keys
+           mv hadoop /home1/hadoop/.ssh/id_rsa
+           mv hadoop.pub /home1/hadoop/.ssh/id_rsa.pub
+           chown -R hadoop.hadoop /home1/hadoop/.ssh
+           sudo sshpass -p '$ROOT_PW' scp -o StrictHostKeyChecking=no root@$IP_FIX_NODE1:/home1/hadoop/.ssh/id_rsa.pub /home1/hadoop/.ssh/authorized_keys
+           chown -R hadoop.hadoop /home1/hadoop/.ssh
+           chmod 600 /home1/hadoop/.ssh/authorized_keys
            cd /opt
            wget --no-cookies --no-check-certificate --header "Cookie: gpw_e24=http%3A%2F%2Fwww.oracle.com%2F; oraclelicense=accept-securebackup-cookie" "http://download.oracle.com/otn-pub/java/jdk/8u101-b13/jdk-8u101-linux-x64.tar.gz"
            tar -zxf /opt/jdk-8u101-linux-x64.tar.gz
@@ -1090,7 +1102,8 @@ resources:
            wget http://www.eu.apache.org/dist/hadoop/common/hadoop-2.6.0/hadoop-2.6.0.tar.gz
            tar -zxf hadoop-2.6.0.tar.gz
            mv hadoop-2.6.0 hadoop
-           cat >> /home/hadoop/.bashrc << EOF
+           cat >> /home1/hadoop/.bashrc << EOF
+           export JAVA_HOME=/opt/jdk
            export HADOOP_PREFIX=/opt/hadoop
            export HADOOP_HOME=\$HADOOP_PREFIX
            export HADOOP_COMMON_HOME=\$HADOOP_PREFIX
@@ -1110,9 +1123,9 @@ resources:
            EOF
            chown hadoop /opt/hadoop/ -R
            chgrp hadoop /opt/hadoop/ -R
-           mkdir /home/hadoop/datanode
-           chown hadoop /home/hadoop/datanode/
-           chgrp hadoop /home/hadoop/datanode/
+           mkdir /home1/hadoop/datanode
+           chown hadoop /home1/hadoop/datanode/
+           chgrp hadoop /home1/hadoop/datanode/
            cat > /opt/hadoop/etc/hadoop/hdfs-site.xml << EOF
            <configuration>
            <property>
@@ -1125,10 +1138,11 @@ resources:
            </property>
            <property>
              <name>dfs.datanode.data.dir</name>
-             <value>/home/hadoop/datanode</value>
+             <value>/home1/hadoop/datanode</value>
            </property>
            </configuration>
            EOF
+           chown -R hadoop.hadoop /home1/*
            cd /opt
            wget http://mirror.nohup.it/apache/spark/spark-2.1.0/spark-2.1.0-bin-hadoop2.6.tgz
            tar -zxf  spark-2.1.0-bin-hadoop2.6.tgz
@@ -1159,7 +1173,6 @@ resources:
 
            export MASTER="yarn-client"
            export SPARK_LOCAL_IP=$IP_FIX_NODE6
-           export MESOS_NATIVE_JAVA_LIBRARY="/usr/lib/libmesos.so"
            export SPARK_EXECUTOR_HOME="/opt/spark-2.1.0-bin-hadoop2.6"
            export YARN_APPLICATION_CLASSPATH="log4j.properties"
 
@@ -1185,14 +1198,14 @@ resources:
     type: OS::Neutron::Port
     properties:
       name: "nodo6-server-port"
-      network_id: f43b395b-f64e-4b20-99d1-5dec84b2ccf7
+      network_id: { get_param: tenant_net_name }
       fixed_ips:
         - { ip_address: { get_param: fixed_ip_nodo_6 }, subnet: { get_param: tenant_subnet_name } }
       security_groups: [{Ref: secgroup-bigdata_secgroup},]
 
 outputs:
   root_pw:
-    description: root pwd to access to all VMs in mesos cluster
+    description: root pwd to access to all VMs in spark cluster
     value: {get_resource: root_pw}
 
   hadoop_pw:
