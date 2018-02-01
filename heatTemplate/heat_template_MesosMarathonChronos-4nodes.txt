@@ -1,0 +1,463 @@
+heat_template_version: 2013-05-23
+description: Create VM, network and security group for Big Data testing - mesos cluster 
+
+parameters:
+    
+  image_to_use:
+    type: string
+    label: Image name or ID
+    description: Image used for all servermesos in big data cluster (CentOS7)
+    #default: 5938e89b-1ff7-4caf-b090-79c949da7ba7 
+    default: e433e837-a3d5-43c0-b8a0-75dc851c696b 
+  
+  key_name_user:
+   type: string
+   label: Public ssh key of one user.
+   description: Public ssh key of one user.
+   default: pub 
+
+  flavor_to_use:
+    type: string
+    label: Flavor name 
+    description: Flavor used for all nodos in big data cluster
+    default: cldareapd.small
+
+  tenant_net_name:
+    type: string
+    label: Network ID of the tenant
+    description: This parameter has been set with the id of the tenant network. If you have more than one choose one of thoose.
+    default: c0326d8a-6959-4111-9cf6-0021a1b55eb9
+
+  tenant_subnet_name:
+    type: string
+    label: Sub network of the tenant
+    description: This parameter has been set with the name of the tenant sub network. If you have more than one choose one of thoose.
+    default: "sub-CMS-lan"
+
+  fixed_ip_servermesos_1:
+    type: string
+    label: Fixed ip for servermesos1 host
+    description: Fixed ip for servermesos1 host
+    default: "10.64.22.79"
+
+  fixed_ip_servermesos_2:
+    type: string
+    label: Fixed ip for servermesos2 host
+    description: Fixed ip for servermesos2 host
+    default: "10.64.22.81"
+
+  fixed_ip_servermesos_3:
+    type: string
+    label: Fixed ip for servermesos3 host
+    description: Fixed ip for servermesos3 host
+    default: "10.64.22.82"
+
+  fixed_ip_slavemesos_4:
+    type: string
+    label: Fixed ip for slavemesos4 host
+    description: Fixed ip for slavemesos4 host
+    default: "10.64.22.84"
+
+resources:
+  
+  root_pw:
+   type: OS::Heat::RandomString
+   properties:
+      length: 8 
+
+
+  all-mesos_secgroup:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      description: "Access to ssh, ping, mesos, marathon, chronos connections for all VM in this security group"
+      name: "ssh-ping-bigdata"
+      rules: [{"direction": ingress, "remote_ip_prefix": 0.0.0.0/0, "port_range_min": 1, "remote_mode": remote_ip_prefix, "port_range_max": 65535, "protocol": TCP}, {"direction": ingress, "remote_ip_prefix": 0.0.0.0/0, "remote_mode": remote_ip_prefix, "protocol": ICMP}]
+
+
+  servermesos1_server_port:
+    type: OS::Neutron::Port
+    properties:
+      name: "servermesos1-server-port"
+      #network_id: f43b395b-f64e-4b20-99d1-5dec84b2ccf7
+      network_id: { get_param: tenant_net_name }
+      fixed_ips:
+        - { ip_address: { get_param: fixed_ip_servermesos_1 }, subnet: { get_param: tenant_subnet_name } }
+      security_groups: [{Ref: all-mesos_secgroup},]
+
+  servermesos1_server_instance:
+    type: OS::Nova::Server
+    properties:
+      name: "servermesos1"
+      key_name: { get_param: key_name_user }
+      image: { get_param: image_to_use } 
+      flavor: { get_param: flavor_to_use }
+      #security_groups: [{Ref: all-mesos_secgroup},]
+      networks:
+        - port: { get_resource: servermesos1_server_port }
+      user_data_format: RAW
+      user_data:
+        str_replace:
+          template: |
+           #!/bin/bash
+           echo -n root:$ROOT_PW | chpasswd
+           sed -i s/"PermitRootLogin without-password$"/"PermitRootLogin yes"/ /etc/ssh/sshd_config
+           sed -i s/"PasswordAuthentication no$"/"PasswordAuthentication yes"/ /etc/ssh/sshd_config
+           service sshd restart
+           cat > /etc/hosts << EOF
+           $IP_FIX_NODE1    servermesos1.novalocal servermesos1
+           $IP_FIX_NODE2    servermesos2.novalocal servermesos2
+           $IP_FIX_NODE3    servermesos3.novalocal servermesos3
+           $IP_FIX_NODE4    slavemesos4.novalocal slavemesos4
+           127.0.0.1   localhost localhost.localdomain localhost4 localhost4.localdomain4
+           ::1         localhost localhost.localdomain localhost6 localhost6.localdomain6
+           EOF
+           yum update
+           yum install -y ntp tar wget git telnet
+           cat > /etc/hostname  << EOF
+           servermesos1.novalocal servermesos1
+           EOF
+           yum localinstall -y http://repos.mesosphere.com/el/7/noarch/RPMS/mesosphere-el-repo-7-1.noarch.rpm 
+           yum localinstall -y http://archive.cloudera.com/cdh5/one-click-install/redhat/7/x86_64/cloudera-cdh-5-0.x86_64.rpm
+           curl -k -X PUT -H 'Content-Type:application/json' \
+                   -d '{"Status" : "SUCCESS","Reason" : "Configuration OK","UniqueId" : "NODO1","Data" : "Nodo1 started Configured."}' \
+                   "$wait_handle$"
+           yum install -y mesos marathon chronos
+           service mesos-master stop
+           service marathon stop
+           service chronos stop
+           yum install -y zookeeper-server
+           service zookeeper-server stop
+           sed -i 0,/'requiretty'/{s/'requiretty'/'!requiretty'/} /etc/sudoers
+           cat > /etc/mesos/zk << EOF
+           zk://$IP_FIX_NODE1:2181,$IP_FIX_NODE2:2181,$IP_FIX_NODE3:2181/mesos
+           EOF
+           sudo -u zookeeper /bin/zookeeper-server-initialize --myid=1
+           cat > /etc/mesos-master/quorum << EOF
+           2
+           EOF
+           cat > /etc/mesos-master/hostname << EOF
+           $IP_FIX_NODE1 
+           EOF
+           cat > /etc/mesos-master/ip << EOF
+           $IP_FIX_NODE1
+           EOF
+           mkdir -p /etc/marathon/conf
+           cat > /etc/marathon/conf/hostname << EOF
+           $IP_FIX_NODE1
+           EOF
+           cat > /etc/marathon/conf/task_launch_timeout << EOF
+           30000
+           EOF
+           cat >> /etc/zookeeper/conf/zoo.cfg << EOF
+           server.1=$IP_FIX_NODE1:2888:3888
+           server.2=$IP_FIX_NODE2:2888:3888
+           server.3=$IP_FIX_NODE3:2888:3888
+           EOF
+           service zookeeper-server start
+           service mesos-master start
+           service marathon start
+           service chronos start
+           chkconfig zookeeper-server on
+          params:
+            $ROOT_PW: {get_resource: root_pw}
+            $IP_FIX_NODE1: {get_param: fixed_ip_servermesos_1}
+            $IP_FIX_NODE2: {get_param: fixed_ip_servermesos_2}
+            $IP_FIX_NODE3: {get_param: fixed_ip_servermesos_3}
+            $IP_FIX_NODE4: {get_param: fixed_ip_slavemesos_4}
+            $wait_handle$: { get_resource: servermesos1_instance_wait_handle }
+
+  servermesos1_instance_wait:
+    type: "AWS::CloudFormation::WaitCondition"
+    depends_on: servermesos1_server_instance 
+    properties:
+      Handle:
+        get_resource: servermesos1_instance_wait_handle
+      Timeout: 3600
+
+  servermesos1_instance_wait_handle:
+    type: "AWS::CloudFormation::WaitConditionHandle"
+  
+
+  servermesos2_server_port:
+    type: OS::Neutron::Port
+    properties:
+      name: "servermesos2-server-port"
+      network_id: { get_param: tenant_net_name }
+      #network_id: f43b395b-f64e-4b20-99d1-5dec84b2ccf7
+      fixed_ips:
+        - { ip_address: { get_param: fixed_ip_servermesos_2 }, subnet: { get_param: tenant_subnet_name } }
+      security_groups: [{Ref: all-mesos_secgroup},]
+
+  servermesos2_server_instance:
+    type: OS::Nova::Server
+    depends_on: servermesos1_instance_wait
+    properties:
+      name: "servermesos2"
+      key_name: { get_param: key_name_user }
+      image: { get_param: image_to_use }
+      flavor: { get_param: flavor_to_use }
+      #security_groups: [{Ref: all-mesos_secgroup},]
+      networks:
+        - port: { get_resource: servermesos2_server_port }
+      user_data_format: RAW
+      user_data:
+        str_replace:
+          template: |
+           #!/bin/bash
+           echo -n root:$ROOT_PW | chpasswd
+           sed -i s/"PermitRootLogin without-password$"/"PermitRootLogin yes"/ /etc/ssh/sshd_config
+           sed -i s/"PasswordAuthentication no$"/"PasswordAuthentication yes"/ /etc/ssh/sshd_config
+           service sshd restart
+           cat > /etc/hosts << EOF
+           $IP_FIX_NODE1    servermesos1.novalocal servermesos1
+           $IP_FIX_NODE2    servermesos2.novalocal servermesos2
+           $IP_FIX_NODE3    servermesos3.novalocal servermesos3
+           $IP_FIX_NODE4    slavemesos4.novalocal slavemesos4
+           127.0.0.1   localhost localhost.localdomain localhost4 localhost4.localdomain4
+           ::1         localhost localhost.localdomain localhost6 localhost6.localdomain6
+           EOF
+           yum update
+           yum install -y ntp tar wget git telnet
+           cat > /etc/hostname  << EOF
+           servermesos2.novalocal servermesos2
+           EOF
+           yum localinstall -y http://repos.mesosphere.com/el/7/noarch/RPMS/mesosphere-el-repo-7-1.noarch.rpm
+           yum localinstall -y http://archive.cloudera.com/cdh5/one-click-install/redhat/7/x86_64/cloudera-cdh-5-0.x86_64.rpm
+           curl -k -X PUT -H 'Content-Type:application/json' \
+                   -d '{"Status" : "SUCCESS","Reason" : "Configuration OK","UniqueId" : "NODO2","Data" : "Nodo2 started Configured."}' \
+                   "$wait_handle$"
+           yum install -y mesos marathon chronos
+           service mesos-master stop
+           service marathon stop
+           service chronos stop
+           yum install -y zookeeper-server
+           service zookeeper-server stop
+           sed -i 0,/'requiretty'/{s/'requiretty'/'!requiretty'/} /etc/sudoers
+           cat > /etc/mesos/zk << EOF
+           zk://$IP_FIX_NODE1:2181,$IP_FIX_NODE2:2181,$IP_FIX_NODE3:2181/mesos
+           EOF
+           sudo -u zookeeper /bin/zookeeper-server-initialize --myid=2
+           cat > /etc/mesos-master/quorum << EOF
+           2
+           EOF
+           cat > /etc/mesos-master/hostname << EOF
+           $IP_FIX_NODE2
+           EOF
+           cat > /etc/mesos-master/ip << EOF
+           $IP_FIX_NODE2
+           EOF
+           mkdir -p /etc/marathon/conf
+           cat > /etc/marathon/conf/hostname << EOF
+           $IP_FIX_NODE2
+           EOF
+           cat > /etc/marathon/conf/task_launch_timeout << EOF
+           30000
+           EOF
+           cat >> /etc/zookeeper/conf/zoo.cfg << EOF
+           server.1=$IP_FIX_NODE1:2888:3888
+           server.2=$IP_FIX_NODE2:2888:3888
+           server.3=$IP_FIX_NODE3:2888:3888
+           EOF
+           service zookeeper-server start
+           service mesos-master start
+           service marathon stop
+           service chronos stop
+           chkconfig zookeeper-server on
+          params:
+            $ROOT_PW: {get_resource: root_pw}
+            $IP_FIX_NODE1: {get_param: fixed_ip_servermesos_1}
+            $IP_FIX_NODE2: {get_param: fixed_ip_servermesos_2}
+            $IP_FIX_NODE3: {get_param: fixed_ip_servermesos_3}
+            $IP_FIX_NODE4: {get_param: fixed_ip_slavemesos_4}
+            $wait_handle$: { get_resource: servermesos2_instance_wait_handle }
+
+  servermesos2_instance_wait:
+    type: "AWS::CloudFormation::WaitCondition"
+    depends_on: servermesos2_server_instance
+    properties:
+      Handle:
+        get_resource: servermesos2_instance_wait_handle
+      Timeout: 3600
+
+  servermesos2_instance_wait_handle:
+    type: "AWS::CloudFormation::WaitConditionHandle"
+
+
+  servermesos3_server_port:
+    type: OS::Neutron::Port
+    properties:
+      name: "servermesos3-server-port"
+      network_id: { get_param: tenant_net_name }
+      fixed_ips:
+        - { ip_address: { get_param: fixed_ip_servermesos_3 }, subnet: { get_param: tenant_subnet_name } }
+      security_groups: [{Ref: all-mesos_secgroup},]
+
+  servermesos3_server_instance:
+    type: OS::Nova::Server
+    depends_on: servermesos2_instance_wait
+    properties:
+      name: "servermesos3"
+      key_name: { get_param: key_name_user }
+      image: { get_param: image_to_use }
+      flavor: { get_param: flavor_to_use }
+      #security_groups: [{Ref: all-mesos_secgroup},]
+      networks:
+        - port: { get_resource: servermesos3_server_port }
+      user_data_format: RAW
+      user_data:
+        str_replace:
+          template: |
+           #!/bin/bash
+           echo -n root:$ROOT_PW | chpasswd
+           sed -i s/"PermitRootLogin without-password$"/"PermitRootLogin yes"/ /etc/ssh/sshd_config
+           sed -i s/"PasswordAuthentication no$"/"PasswordAuthentication yes"/ /etc/ssh/sshd_config
+           service sshd restart
+           cat > /etc/hosts << EOF
+           $IP_FIX_NODE1    servermesos1.novalocal servermesos1
+           $IP_FIX_NODE2    servermesos2.novalocal servermesos2
+           $IP_FIX_NODE3    servermesos3.novalocal servermesos3
+           $IP_FIX_NODE4    slavemesos4.novalocal slavemesos4
+           127.0.0.1   localhost localhost.localdomain localhost4 localhost4.localdomain4
+           ::1         localhost localhost.localdomain localhost6 localhost6.localdomain6
+           EOF
+           yum update
+           yum install -y ntp tar wget git telnet
+           cat > /etc/hostname  << EOF
+           servermesos3.novalocal servermesos3
+           EOF
+           yum localinstall -y http://repos.mesosphere.com/el/7/noarch/RPMS/mesosphere-el-repo-7-1.noarch.rpm
+           yum localinstall -y http://archive.cloudera.com/cdh5/one-click-install/redhat/7/x86_64/cloudera-cdh-5-0.x86_64.rpm
+           curl -k -X PUT -H 'Content-Type:application/json' \
+                   -d '{"Status" : "SUCCESS","Reason" : "Configuration OK","UniqueId" : "NODO3","Data" : "Nodo3 started Configured."}' \
+                   "$wait_handle$"
+           yum install -y mesos marathon chronos
+           service mesos-master stop
+           service marathon stop
+           service chronos stop
+           yum install -y zookeeper-server
+           service zookeeper-server stop
+           sed -i 0,/'requiretty'/{s/'requiretty'/'!requiretty'/} /etc/sudoers
+           cat > /etc/mesos/zk << EOF
+           zk://$IP_FIX_NODE1:2181,$IP_FIX_NODE2:2181,$IP_FIX_NODE3:2181/mesos
+           EOF
+           sudo -u zookeeper /bin/zookeeper-server-initialize --myid=3
+           cat > /etc/mesos-master/quorum << EOF
+           2
+           EOF
+           cat > /etc/mesos-master/hostname << EOF
+           $IP_FIX_NODE3
+           EOF
+           cat > /etc/mesos-master/ip << EOF
+           $IP_FIX_NODE3
+           EOF
+           mkdir -p /etc/marathon/conf
+           cat > /etc/marathon/conf/hostname << EOF
+           $IP_FIX_NODE3
+           EOF
+           cat > /etc/marathon/conf/task_launch_timeout << EOF
+           30000
+           EOF
+           cat >> /etc/zookeeper/conf/zoo.cfg << EOF
+           server.1=$IP_FIX_NODE1:2888:3888
+           server.2=$IP_FIX_NODE2:2888:3888
+           server.3=$IP_FIX_NODE3:2888:3888
+           EOF
+           service zookeeper-server start
+           service mesos-master start
+           service marathon stop
+           service chronos stop
+           chkconfig zookeeper-server on
+          params:
+            $ROOT_PW: {get_resource: root_pw}
+            $IP_FIX_NODE1: {get_param: fixed_ip_servermesos_1}
+            $IP_FIX_NODE2: {get_param: fixed_ip_servermesos_2}
+            $IP_FIX_NODE3: {get_param: fixed_ip_servermesos_3}
+            $IP_FIX_NODE4: {get_param: fixed_ip_slavemesos_4}
+            $wait_handle$: { get_resource: servermesos3_instance_wait_handle }
+
+  servermesos3_instance_wait:
+    type: "AWS::CloudFormation::WaitCondition"
+    depends_on: servermesos3_server_instance
+    properties:
+      Handle:
+        get_resource: servermesos3_instance_wait_handle
+      Timeout: 3600
+
+  servermesos3_instance_wait_handle:
+    type: "AWS::CloudFormation::WaitConditionHandle"
+
+  slavemesos4_server_port:
+    type: OS::Neutron::Port
+    properties:
+      name: "slavemesos4-server-port"
+      #network_id: f43b395b-f64e-4b20-99d1-5dec84b2ccf7
+      network_id: { get_param: tenant_net_name }
+      fixed_ips:
+        - { ip_address: { get_param: fixed_ip_slavemesos_4 }, subnet: { get_param: tenant_subnet_name } }
+      security_groups: [{Ref: all-mesos_secgroup},]
+
+  slavemesos4_server_instance:
+    type: OS::Nova::Server
+    depends_on: servermesos3_instance_wait
+    properties:
+      name: "slavemesos4"
+      key_name: { get_param: key_name_user }
+      image: { get_param: image_to_use }
+      flavor: { get_param: flavor_to_use }
+      #security_groups: [{Ref: all-mesos_secgroup},]
+      networks:
+        - port: { get_resource: slavemesos4_server_port }
+      user_data_format: RAW
+      user_data:
+        str_replace:
+          template: |
+           #!/bin/bash
+           echo -n root:$ROOT_PW | chpasswd
+           sed -i s/"PermitRootLogin without-password$"/"PermitRootLogin yes"/ /etc/ssh/sshd_config
+           sed -i s/"PasswordAuthentication no$"/"PasswordAuthentication yes"/ /etc/ssh/sshd_config
+           service sshd restart
+           cat > /etc/hosts << EOF
+           $IP_FIX_NODE1    servermesos1.novalocal servermesos1
+           $IP_FIX_NODE2    servermesos2.novalocal servermesos2
+           $IP_FIX_NODE3    servermesos3.novalocal servermesos3
+           $IP_FIX_NODE4    slavemesos4.novalocal slavemesos4
+           127.0.0.1   localhost localhost.localdomain localhost4 localhost4.localdomain4
+           ::1         localhost localhost.localdomain localhost6 localhost6.localdomain6
+           EOF
+           yum update
+           yum install -y ntp tar wget git telnet
+           cat > /etc/hostname  << EOF
+           slavemesos4.novalocal slavemesos4
+           EOF
+           yum localinstall -y http://repos.mesosphere.com/el/7/noarch/RPMS/mesosphere-el-repo-7-1.noarch.rpm
+           yum install -y container-selinux
+           yum install -y mesos docker
+           service mesos-slave stop
+           service docker start
+           cat > /etc/mesos/zk << EOF
+           zk://$IP_FIX_NODE1:2181,$IP_FIX_NODE2:2181,$IP_FIX_NODE3:2181/mesos
+           EOF
+           cat > /etc/mesos-slave/hostname << EOF
+           $IP_FIX_NODE4
+           EOF
+           cat > /etc/mesos-slave/ip << EOF
+           $IP_FIX_NODE4
+           EOF
+           cat > /etc/mesos-slave/containerizers << EOF
+           docker,mesos
+           EOF
+           cat > /etc/mesos-slave/executor_registration_timeout << EOF
+           5mins
+           EOF
+           service mesos-slave start 
+          params:
+            $ROOT_PW: {get_resource: root_pw}
+            $IP_FIX_NODE1: {get_param: fixed_ip_servermesos_1}
+            $IP_FIX_NODE2: {get_param: fixed_ip_servermesos_2}
+            $IP_FIX_NODE3: {get_param: fixed_ip_servermesos_3}
+            $IP_FIX_NODE4: {get_param: fixed_ip_slavemesos_4}
+
+outputs:
+  root_pw:
+    description: root pwd to access to all VMs in mesos cluster
+    value: {get_resource: root_pw}
