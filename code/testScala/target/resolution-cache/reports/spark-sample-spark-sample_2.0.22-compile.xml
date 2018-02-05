@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="ivy-report.xsl"?>
+<ivy-report version="1.0">
+	<info
+		organisation="spark-sample"
+		module="spark-sample_2.0.22"
+		revision="1.0"
+		conf="compile"
+		confs="compile, runtime, test, provided, optional, compile-internal, runtime-internal, test-internal, plugin, sources, docs, pom, scala-tool"
+		date="20170516135152"/>
+	<dependencies>
+		<module organisation="org.apache.spark" name="spark-core_2.0.22">
+			<revision name="1.1.1" error="not found" downloaded="false" searched="false" conf="default(compile)" position="-1">
+				<caller organisation="spark-sample" name="spark-sample_2.0.22" conf="compile" rev="1.1.1" rev-constraint-default="1.1.1" rev-constraint-dynamic="1.1.1" callerrev="1.0"/>
+				<artifacts>
+				</artifacts>
+			</revision>
+		</module>
+		<module organisation="org.scala-lang" name="scala-library">
+			<revision name="2.0.22" error="not found" downloaded="false" searched="false" conf="default(compile)" position="-1">
+				<caller organisation="spark-sample" name="spark-sample_2.0.22" conf="compile" rev="2.0.22" rev-constraint-default="2.0.22" rev-constraint-dynamic="2.0.22" callerrev="1.0"/>
+				<artifacts>
+				</artifacts>
+			</revision>
+		</module>
+	</dependencies>
+</ivy-report>

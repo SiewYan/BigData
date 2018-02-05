@@ -1,0 +1,19 @@
+[0m[[0minfo[0m] [0mPackaging /root/testScala/target/scala-2.10/sparksample_2.10-1.0.jar ...[0m
+[0m[[0mdebug[0m] [0mInput file mappings:[0m
+[0m[[0mdebug[0m] [0m	Prova.class[0m
+[0m[[0mdebug[0m] [0m	  /root/testScala/target/scala-2.10/classes/Prova.class[0m
+[0m[[0mdebug[0m] [0m	Prova$$anonfun$2.class[0m
+[0m[[0mdebug[0m] [0m	  /root/testScala/target/scala-2.10/classes/Prova$$anonfun$2.class[0m
+[0m[[0mdebug[0m] [0m	Prova$.class[0m
+[0m[[0mdebug[0m] [0m	  /root/testScala/target/scala-2.10/classes/Prova$.class[0m
+[0m[[0mdebug[0m] [0m	FirstTest$$anonfun$1.class[0m
+[0m[[0mdebug[0m] [0m	  /root/testScala/target/scala-2.10/classes/FirstTest$$anonfun$1.class[0m
+[0m[[0mdebug[0m] [0m	Prova$$anonfun$1.class[0m
+[0m[[0mdebug[0m] [0m	  /root/testScala/target/scala-2.10/classes/Prova$$anonfun$1.class[0m
+[0m[[0mdebug[0m] [0m	FirstTest$$anonfun$2.class[0m
+[0m[[0mdebug[0m] [0m	  /root/testScala/target/scala-2.10/classes/FirstTest$$anonfun$2.class[0m
+[0m[[0mdebug[0m] [0m	FirstTest$.class[0m
+[0m[[0mdebug[0m] [0m	  /root/testScala/target/scala-2.10/classes/FirstTest$.class[0m
+[0m[[0mdebug[0m] [0m	FirstTest.class[0m
+[0m[[0mdebug[0m] [0m	  /root/testScala/target/scala-2.10/classes/FirstTest.class[0m
+[0m[[0minfo[0m] [0mDone packaging.[0m
