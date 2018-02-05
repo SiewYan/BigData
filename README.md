@@ -4,7 +4,7 @@
 
 1. [Overview](#overview)
 2. [Directory Structure](#directory-structure)
-3. [Tested on] (#tested-on)
+3. [Tested on](#tested-on)
 
 ## Overview
 
