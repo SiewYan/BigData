@@ -3,7 +3,7 @@
 
 1. [Overview](#overview)
 2. [How to create the container](#How-to-create-the-container)
-   * [Install Docker in your host](#Install-Docker-in-your-host)
+   * [Install Docker in your host](#install-docker-in-your-host)
    * [Creating a Spark image with Dockerfile](#Creating-a-Spark-image-with-Dockerfile)
    * [Important conf file and script](#Important-conf-file-and-script)
    * [Build the Docker](#Build-the-Docker)
@@ -21,7 +21,7 @@ We suppose to have a mesos cluster composed by 1 master and more slaves or 3 mas
 
 ## How to create the container
 
-### Install Docker in your host
+###  Install Docker in your host
 
 We followed the Docker documentation on installing Docker in CentOS. I suggest that you do the same. In a nutshell, we executed the following:
 
