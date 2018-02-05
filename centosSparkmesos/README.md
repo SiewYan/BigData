@@ -2,12 +2,12 @@
 
 
 1. [Overview](#overview)
-2. [How to create the container](#container-creation)
-   * [Install Docker in your host](#install-docker)
-   * [Creating a Spark image with Dockerfile](#dockerfile)
-   * [Important conf file and script](#conffileandscrpt)
-   * [Build the Docker](#BuildDocker)
-3. [Use the Spark with Mesos](#usesparkmesos)
+2. [How to create the container](#How-to-create-the-container)
+   * [Install Docker in your host](#Install-Docker-in-your-host)
+   * [Creating a Spark image with Dockerfile](#Creating-a-Spark-image-with-Dockerfile)
+   * [Important conf file and script](#Important-conf-file-and-script)
+   * [Build the Docker](#Build-the-Docker)
+3. [Use the Spark with Mesos](#Use-the-Spark-with-Mesos)
 4. [Documentation](#documentation)
 
 ## Overview
